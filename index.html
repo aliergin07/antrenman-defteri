@@ -166,6 +166,16 @@ textarea{width:100%;min-height:70px;border:1px solid var(--line);border-radius:8
 .tst label.fld[style]{font-weight:500}
 .chipLv{display:inline-flex;gap:4px;align-items:baseline;padding:6px 10px;border-radius:999px;background:var(--accent-soft);font-size:.88rem}
 .chipLv b{font-variant-numeric:tabular-nums}
+.bfg{display:grid;gap:6px;margin:6px 0;font-weight:400}
+.bfg-big{font-family:var(--display);font-size:2.4rem;font-weight:700;line-height:1;color:var(--fg);font-variant-numeric:tabular-nums;display:flex;flex-direction:column;gap:4px}
+.bfg-big small{font-family:inherit;font-size:.8rem;font-weight:500;color:var(--muted);letter-spacing:0}
+.bfg-bar{position:relative;height:14px;border-radius:7px;overflow:hidden;background:var(--line);margin-top:6px}
+.bfg-b{position:absolute;top:0;bottom:0;opacity:.35}.bfg-b.b0{background:var(--muted)}.bfg-b.b1,.bfg-b.b2{background:var(--done)}.bfg-b.b2{opacity:.22}.bfg-b.b3{background:var(--warn);opacity:.2}.bfg-b.b4{background:var(--warn);opacity:.4}
+.bfg-rng{position:absolute;top:2px;bottom:2px;background:var(--accent);opacity:.75;border-radius:5px}
+.bfg-mk{position:absolute;top:-2px;bottom:-2px;width:4px;margin-left:-2px;background:var(--fg);border-radius:2px}
+.bfg-ends,.bfg-names{position:relative;height:18px;font-size:.78rem;font-variant-numeric:tabular-nums}
+.bfg-ends span{position:absolute;font-weight:700;color:var(--fg);white-space:nowrap}.bfg-ends span:first-child{transform:translateX(-100%);padding-right:4px}.bfg-ends span:last-child{padding-left:4px}
+.bfg-names span{position:absolute;transform:translateX(-50%);color:var(--muted);font-size:.66rem;white-space:nowrap}
 </style>
 
 <div class="wrap">
@@ -398,20 +408,37 @@ function isKadin(){return (S.profil&&S.profil.cinsiyet)==='Kadın';}
 function bfCalc(O){return bfFrom(Object.assign({},O,{boy:(S.profil&&S.profil.boy)||'',cinsiyet:(S.profil&&S.profil.cinsiyet)||''}));}
 function vki(kilo,boy){const k=num(kilo),b=num(boy)/100;if(!(k>0&&b>0))return null;return k/(b*b);}
 function vkiCat(v){return v<18.5?'zayıf':v<25?'normal':v<30?'fazla kilolu':v<35?'1. derece obez':v<40?'2. derece obez':'3. derece obez';}
-function bfFrom(o){const w=num(o.bel),n=num(o.boyun),h=num(o.boy),k=num(o.kalca);if(!(w>0&&n>0&&h>0&&w>n))return null;
+function bfNavy(o){const w=num(o.bel),n=num(o.boyun),h=num(o.boy),k=num(o.kalca);if(!(w>0&&n>0&&h>0&&w>n))return null;
   if(o.cinsiyet==='Kadın'){if(!(k>0))return null;return 495/(1.29579-0.35004*Math.log10(w+k-n)+0.22100*Math.log10(h))-450;}
   return 495/(1.0324-0.19077*Math.log10(w-n)+0.15456*Math.log10(h))-450;}
+function bfRfm(o){const w=num(o.bel),h=num(o.boy);if(!(w>0&&h>0)||!o.cinsiyet)return null;return (o.cinsiyet==='Kadın'?76:64)-20*(h/w);}
+function bfRange(o){const a=bfNavy(o),b=bfRfm(o);const xs=[a,b].filter(x=>x!=null&&isFinite(x)&&x>2&&x<70);if(!xs.length)return null;
+  const lo=Math.min(...xs),hi=Math.max(...xs);return {lo,hi,est:(lo+hi)/2,navy:a,rfm:b};}
+function bfFrom(o){const r=bfRange(o);return r?r.est:null;}
+const f1=x=>x.toFixed(1).replace('.',',');
+function bfGauge(r,kad){const t=kad?[14,21,25,32]:[6,14,18,25];const MIN=kad?8:3,MAX=kad?50:45;const P=v=>Math.max(0,Math.min(100,(v-MIN)/(MAX-MIN)*100));
+  const ed=[MIN,...t,MAX];const nm=['çok düşük','atletik','fit','ortalama','yüksek'];
+  const bands=nm.map((n,i)=>`<div class="bfg-b b${i}" style="left:${P(ed[i])}%;width:${P(ed[i+1])-P(ed[i])}%"></div>`).join('');
+  const names=nm.map((n,i)=>i===0?'':`<span style="left:${(P(ed[i])+P(ed[i+1]))/2}%">${n}</span>`).join('');
+  const one=r.hi-r.lo<0.8;
+  return `<div class="bfg"><div class="bfg-big">%${f1(r.est)}<small>tahmini yağ oranı · ${bfCat(r.est,kad)}</small></div>
+  <div class="bfg-bar">${bands}${one?'':`<div class="bfg-rng" style="left:${P(r.lo)}%;width:${P(r.hi)-P(r.lo)}%"></div>`}<div class="bfg-mk" style="left:${P(r.est)}%"></div></div>
+  ${one?'':`<div class="bfg-ends"><span style="left:${P(r.lo)}%">%${f1(r.lo)}</span><span style="left:${P(r.hi)}%">%${f1(r.hi)}</span></div>`}
+  <div class="bfg-names">${names}</div>
+  <p class="daynote" style="margin:4px 0 0">${one?'Tek yöntemle hesaplandı ('+(r.navy!=null?'US Navy':'RFM')+(kad&&r.navy==null?'; kalça girersen ikinci yöntem de eklenir':'')+').':`Aralık iki yöntemden: US Navy (bel, boyun, boy) %${f1(r.navy)} · RFM (bel, boy) %${f1(r.rfm)}. Ortası tahminimiz.`}</p></div>`;}
 function bfCat(b,kadin){const t=kadin?[14,21,25,32]:[6,14,18,25];return b<t[0]?'çok düşük':b<t[1]?'atletik':b<t[2]?'fit':b<t[3]?'ortalama':'yüksek';}
 function calcBox(o){const v=vki(o.kilo,o.boy);const b=bfFrom(o);const kad=o.cinsiyet==='Kadın';
   let h='<b>Hesaplamaların</b><div style="display:grid;gap:4px;margin-top:6px;font-size:.95rem">';
   h+=v?`<div>VKİ: <strong>${v.toFixed(1)}</strong> <span class="daynote">(${vkiCat(v)})</span></div>`:'<div class="daynote">VKİ için boy ve kilo gir</div>';
-  if(b!=null){const k=num(o.kilo);h+=`<div>Tahmini yağ oranı: <strong>%${b.toFixed(1)}</strong> <span class="daynote">(${bfCat(b,kad)})</span></div>`;if(k>0)h+=`<div>Yağ kütlesi ~${(k*b/100).toFixed(1)} kg · yağsız kütle ~${(k*(1-b/100)).toFixed(1)} kg</div>`;}
-  else h+=`<div class="daynote">Yağ oranı için bel, boyun${kad?', kalça':''} ve boy gir</div>`;
+  const R=bfRange(o);if(R){const k=num(o.kilo);h+=bfGauge(R,kad);if(k>0)h+=`<div>Yağ kütlesi ~${(k*R.est/100).toFixed(1)} kg · yağsız kütle ~${(k*(1-R.est/100)).toFixed(1)} kg</div>`;}
+  else h+=`<div class="daynote">Yağ oranı için cinsiyet, boy ve bel gir (boyun girersen ikinci yöntem eklenir)</div>`;
   const w=num(o.bel),hb=num(o.boy);if(w>0&&hb>0){const r=w/hb;h+=`<div>Bel / boy oranı: <strong>${r.toFixed(2)}</strong> <span class="daynote">(${r<0.5?'sağlıklı aralık':r<0.6?'artmış risk':'yüksek risk'})</span></div>`;}
-  h+='</div><p class="daynote" style="margin:6px 0 0">Tahminidir (ABD Donanması formülü). Gidişatı takip etmek için kullanılır.</p>';return h;}
+  h+='</div><p class="daynote" style="margin:6px 0 0">Mezura yöntemleri ±%3–4 hata payı taşır. Kesin değerden çok gidişatı takip etmek için kullanılır.</p>';return h;}
 function hdr(on){const el=document.querySelector('header.top');if(el)el.hidden=!on;}
 function profTxt(){const p=S.profil||{};return [p.yas?p.yas+' yaşında':'',p.cinsiyet||'',p.boy?p.boy+' cm':'',p.kilo?p.kilo+' kg':'',p.hedef?'hedef: '+p.hedef:'',p.yemedikleri?'yemedikleri/sevmedikleri: '+p.yemedikleri:'',p.alerji?'alerji: '+p.alerji:'',p.ogun?'öğün düzeni: '+p.ogun:''].filter(Boolean).join(', ')||'bilgi yok';}
-function bfTxt(O){const b=bfCalc(O);const v=vki(O.kilo,S.profil&&S.profil.boy);const vt=v?'VKİ '+v.toFixed(1)+' ('+vkiCat(v)+')':'';if(b==null)return (vt?vt+'<br>':'')+'<span class="muted">'+(isKadin()?'yağ için bel + kalça + boyun gir':'yağ için bel + boyun gir')+'</span>';const k=num(O.kilo);return (vt?vt+'<br>':'')+'Yağ %'+b.toFixed(1)+(k>0?' · yağsız kütle '+(k*(1-b/100)).toFixed(1)+' kg':'');}
+function bfTxt(O){const P=S.profil||{};const o=Object.assign({},O,{boy:P.boy||'',cinsiyet:P.cinsiyet||''});const R=bfRange(o);const v=vki(O.kilo,P.boy);const vt=v?'<div>VKİ '+v.toFixed(1)+' ('+vkiCat(v)+')</div>':'';
+  if(!R)return vt+'<span class="muted">Yağ oranı için bel gir (boyun da girersen ikinci yöntem eklenir)</span>';const k=num(O.kilo);
+  return bfGauge(R,isKadin())+vt+(k>0?'<div>Yağsız kütle ~'+(k*(1-R.est/100)).toFixed(1)+' kg</div>':'');}
 function renderOlcum(){
   const L=curLog(),O=L.olcum||{};const d=S.cur;
   let h=`<h1 class="daytitle">Ölçümler</h1><p class="daynote">Her Pazar sabahı, tuvaletten sonra, kahvaltıdan önce. Bel: göbek hizası, nefes verip karnı çekmeden. Boyun: gırtlağın hemen altı.</p>
@@ -503,14 +530,14 @@ async function saveProfil(){const o=Object.assign({},S.profil||{});document.quer
     if(wasFirst){const today=new Date();today.setHours(0,0,0,0);const keep=S.cur;S.cur=today;const L0=curLog();if(!L0.olcum){mutate(L=>{L.olcum={kilo:o.kilo||'',bel:o.bel||'',boyun:o.boyun||'',kalca:o.kalca||''};});}S.cur=keep;}S.tab='gun';render();window.scrollTo(0,0);}
   catch(e){btn.disabled=false;er.textContent=e&&e.code==='invalid_argument'||e&&e.code==='permission_denied'?'Kaydedilemedi. Linkin doğru olduğundan emin ol.':'Kaydedilemedi, tekrar dene.';}}
 const TESTS=[
- {k:'bacak',t:'Bacak · 30 sn sandalyeden kalkma',how:'Kollar göğüste çapraz. Sandalyeye otur, tam ayağa kalk. 30 saniyede kaç kez yapabildiğini say.',f:[['n','Tekrar']],tm:'cd30'},
- {k:'kalca',t:'Kalça / arka bacak · Tek bacak köprü',how:'Sırt üstü yat, bir ayak yerde, diğer bacak havada. Kalçayı kaldırıp indir. Her taraf için ayrı, form bozulana kadar say.',f:[['sag','Sağ bacak tekrar'],['sol','Sol bacak tekrar']]},
- {k:'gogus',t:'Göğüs · Şınav',how:'Erkekler normal şınav, kadınlar dizler yerde. Göğüs yere yumruk mesafesine insin, vücut düz kalsın. Maksimum tekrar.',f:[['n','Tekrar']]},
- {k:'sirt',t:'Sırt · Barda asılı kalma',how:'Barı omuz genişliğinde tut, kollar düz, ayaklar yerden kesik. Kaç saniye dayanabildin? Bar yoksa sağlam bir masanın altına uzan, masa kenarını tutup göğsünü masaya çek: tekrar say.',f:[['n','Sonuç']],mode:[['asili','Barda asılı (sn)'],['ters','Masa altı ters çekiş (tekrar)']],tm:'sw'},
- {k:'kol',t:'Kol · Biceps curl',how:'Erkek 8 kg, kadın 4 kg dambıl (evde 5 litrelik su bidonu). Dirsekler gövdede, 2 saniyede indir. Maksimum tekrar.',f:[['n','Tekrar'],['kg','Kullandığın ağırlık (kg)']]},
- {k:'omuz',t:'Omuz · Yana açış',how:'Erkek 4 kg, kadın 2 kg (evde 1,5 litrelik su şişesi). Kolları yana omuz hizasına kadar kaldır. Maksimum tekrar.',f:[['n','Tekrar'],['kg','Kullandığın ağırlık (kg)']]},
- {k:'omuzMob',t:'Omuz · Duvar testi',how:'Sırtın, başın ve belin duvara yaslı. Kollar düz, yandan yukarı kaldır. Ellerin başının üstünde duvara değiyor mu?',ch:['Değmiyor','Zorlanarak değiyor','Rahat değiyor']},
- {k:'karin',t:'Karın · Plank',how:'Önkollar yerde, vücut baştan topuğa düz. Kalça düşerse ya da yükselirse dur. Kaç saniye?',f:[['n','Saniye']],tm:'sw'}];
+ {k:'bacak',q:'30 second chair stand test',t:'Bacak · 30 sn sandalyeden kalkma',how:'Kollar göğüste çapraz. Sandalyeye otur, tam ayağa kalk. 30 saniyede kaç kez yapabildiğini say.',f:[['n','Tekrar']],tm:'cd30'},
+ {k:'kalca',q:'single leg glute bridge',t:'Kalça / arka bacak · Tek bacak köprü',how:'Sırt üstü yat, bir ayak yerde, diğer bacak havada. Kalçayı kaldırıp indir. Her taraf için ayrı, form bozulana kadar say.',f:[['sag','Sağ bacak tekrar'],['sol','Sol bacak tekrar']]},
+ {k:'gogus',q:'push up proper form|knee push up proper form',t:'Göğüs · Şınav',how:'Erkekler normal şınav, kadınlar dizler yerde. Göğüs yere yumruk mesafesine insin, vücut düz kalsın. Maksimum tekrar.',f:[['n','Tekrar']]},
+ {k:'sirt',q:'dead hang bar|inverted row under table',t:'Sırt · Barda asılı kalma',how:'Barı omuz genişliğinde tut, kollar düz, ayaklar yerden kesik. Kaç saniye dayanabildin? Bar yoksa sağlam bir masanın altına uzan, masa kenarını tutup göğsünü masaya çek: tekrar say.',f:[['n','Sonuç']],mode:[['asili','Barda asılı (sn)'],['ters','Masa altı ters çekiş (tekrar)']],tm:'sw'},
+ {k:'kol',q:'dumbbell biceps curl proper form',t:'Kol · Biceps curl',how:'Erkek 8 kg, kadın 4 kg dambıl (evde 5 litrelik su bidonu). Dirsekler gövdede, 2 saniyede indir. Maksimum tekrar.',f:[['n','Tekrar'],['kg','Kullandığın ağırlık (kg)']]},
+ {k:'omuz',q:'dumbbell lateral raise proper form',t:'Omuz · Yana açış',how:'Erkek 4 kg, kadın 2 kg (evde 1,5 litrelik su şişesi). Kolları yana omuz hizasına kadar kaldır. Maksimum tekrar.',f:[['n','Tekrar'],['kg','Kullandığın ağırlık (kg)']]},
+ {k:'omuzMob',q:'shoulder flexion wall test',t:'Omuz · Duvar testi',how:'Sırtın, başın ve belin duvara yaslı. Kollar düz, yandan yukarı kaldır. Ellerin başının üstünde duvara değiyor mu?',ch:['Değmiyor','Zorlanarak değiyor','Rahat değiyor']},
+ {k:'karin',q:'forearm plank proper form',t:'Karın · Plank',how:'Önkollar yerde, vücut baştan topuğa düz. Kalça düşerse ya da yükselirse dur. Kaç saniye?',f:[['n','Saniye']],tm:'sw'}];
 const TT={draft:{},mode:{sirt:'asili'},tmr:null};
 function tLevel(k,r,kad){const n=+r.n;const L=(v,a,b)=>v>=b?3:v>=a?2:1;
   if(k==='bacak')return L(n,15,21);
@@ -530,7 +557,9 @@ function renderTest(){hdr(false);const p=S.profil||{};const D=TT.draft;
     if(T.f)body+=`<div class="two">${T.f.map(([f,l])=>`<label class="fld"><span>${l}</span><input id="t_${T.k}_${f}" data-tk="${T.k}" data-tf="${f}" inputmode="numeric" value="${esc(r[f]!=null?r[f]:(f==='kg'?(isKadin()?(T.k==='kol'?4:2):(T.k==='kol'?8:4)):''))}"></label>`).join('')}</div>`;
     if(T.tm)body+=`<button class="btn sec" data-ttm="${T.k}" data-mode="${T.tm}" id="tm_${T.k}">${T.tm==='cd30'?'▶ 30 sn sayacı başlat':'▶ Kronometre başlat'}</button>`;
     body+=`<label class="fld" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="t_${T.k}_agri" data-tk="${T.k}" data-tf="agri" ${r.agri?'checked':''}> <span>Ağrı oldu</span></label>`;
-    h+=`<section class="form pf tst"><h2>${i+1}. ${esc(T.t)}</h2><p class="daynote" style="margin:0">${esc(T.how)}</p>${body}</section>`;});
+    const qs=T.q.split('|');const vq=qs.length>1?(T.k==='gogus'?(isKadin()?qs[1]:qs[0]):qs):[qs[0]];
+    const vl=(Array.isArray(vq)?vq:[vq]).map((q,j)=>`<a class="vid" href="https://www.youtube.com/results?search_query=${encodeURIComponent(q)}" target="_blank" rel="noopener">▶ ${Array.isArray(vq)&&vq.length>1?(j?'Video: masa altı ters çekiş':'Video: barda asılı kalma'):'Nasıl yapılır? Video'}</a>`).join('');
+    h+=`<section class="form pf tst"><h2>${i+1}. ${esc(T.t)}</h2><p class="daynote" style="margin:0">${esc(T.how)}</p><div class="meta2">${vl}</div>${body}</section>`;});
   h+=`<p class="err" id="tErr" style="color:var(--warn,#c0392b)"></p><button class="btn" id="saveTest" style="width:100%">Sonuçları kaydet</button>
   <button class="btn sec" id="skipTest" style="width:100%;margin-top:8px">Sağlık nedeniyle şimdilik test yapamıyorum</button>`;
   view.innerHTML=h;}
