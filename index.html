@@ -161,6 +161,11 @@ textarea{width:100%;min-height:70px;border:1px solid var(--line);border-radius:8
 .hero{background:var(--accent-soft);border-radius:12px;padding:14px;margin-top:14px}
 .hero b{font-family:var(--display);font-size:1.2rem;letter-spacing:.02em}
 .err{color:var(--warn);font-size:.9rem}
+.pf input[type=checkbox]{width:22px;height:22px;flex:none}
+.tst .fld{margin:0}.tst .fld span{display:block;font-size:.88rem;font-weight:600;margin-bottom:4px}
+.tst label.fld[style]{font-weight:500}
+.chipLv{display:inline-flex;gap:4px;align-items:baseline;padding:6px 10px;border-radius:999px;background:var(--accent-soft);font-size:.88rem}
+.chipLv b{font-variant-numeric:tabular-nums}
 </style>
 
 <div class="wrap">
@@ -257,6 +262,7 @@ function render(){
   if(!S.loaded||!S.profilLoaded){view.innerHTML='<p class="empty">Yükleniyor…</p>';return;}
   if(S.tab==='profil')return renderProfil();
   if(S.profilLoaded&&!S.profil)return renderProfil();
+  if(S.tab==='test'||(!S.program&&!(S.profil.test&&S.profil.test.done)))return renderTest();
   if(S.tab==='olcum')return renderOlcum();
   if(!S.program)return renderBekle();
   if(S.tab==='hafta')return renderWeek();
@@ -482,7 +488,7 @@ function renderProfil(){hdr(false);const P=S.profil||{};const first=!S.profil;
   <section class="form pf"><h2>Beslenme</h2>${g(['yemedikleri','alerji','ogun','takviye']).map(f).join('')}</section>
   <section class="form pf"><h2>Tercihler</h2>${g(['sevdigi','sevmedigi','ekNot']).map(f).join('')}</section>
   <section class="form pf"><label class="consent"><input type="checkbox" id="p_onay" ${P.onay?'checked':''}><span>Bu bilgilerin ve uygulamaya gireceğim kayıtların, programımı hazırlayan kişi tarafından ve yapay zekâ destekli olarak değerlendirileceğini kabul ediyorum.</span></label>
-  <div class="err" id="pErr"></div><button class="btn" id="saveProf">${first?'Kaydet ve gönder':'Değişiklikleri kaydet'}</button><div class="saved" id="savedMsg"></div></section>`;
+  <div class="err" id="pErr"></div><button class="btn" id="saveProf">${first?'Kaydet ve gönder':'Değişiklikleri kaydet'}</button><div class="saved" id="savedMsg"></div></section>${!first?`${testSummary()}<button class="btn sec" id="redoTest" style="width:100%;margin-top:10px">${S.profil.test&&S.profil.test.done?'Testi yeniden yap':'Başlangıç testini yap'}</button>`:''}`;
   view.innerHTML=h;}
 async function saveProfil(){const o=Object.assign({},S.profil||{});document.querySelectorAll('[data-p]').forEach(el=>{o[el.dataset.p]=el.value.trim();});
   o.onay=!!(document.getElementById('p_onay')||{}).checked;
@@ -496,8 +502,63 @@ async function saveProfil(){const o=Object.assign({},S.profil||{});document.quer
   try{await S.db.doc('app/profil').set(o);S.profil=o;
     if(wasFirst){const today=new Date();today.setHours(0,0,0,0);const keep=S.cur;S.cur=today;const L0=curLog();if(!L0.olcum){mutate(L=>{L.olcum={kilo:o.kilo||'',bel:o.bel||'',boyun:o.boyun||'',kalca:o.kalca||''};});}S.cur=keep;}S.tab='gun';render();window.scrollTo(0,0);}
   catch(e){btn.disabled=false;er.textContent=e&&e.code==='invalid_argument'||e&&e.code==='permission_denied'?'Kaydedilemedi. Linkin doğru olduğundan emin ol.':'Kaydedilemedi, tekrar dene.';}}
+const TESTS=[
+ {k:'bacak',t:'Bacak · 30 sn sandalyeden kalkma',how:'Kollar göğüste çapraz. Sandalyeye otur, tam ayağa kalk. 30 saniyede kaç kez yapabildiğini say.',f:[['n','Tekrar']],tm:'cd30'},
+ {k:'kalca',t:'Kalça / arka bacak · Tek bacak köprü',how:'Sırt üstü yat, bir ayak yerde, diğer bacak havada. Kalçayı kaldırıp indir. Her taraf için ayrı, form bozulana kadar say.',f:[['sag','Sağ bacak tekrar'],['sol','Sol bacak tekrar']]},
+ {k:'gogus',t:'Göğüs · Şınav',how:'Erkekler normal şınav, kadınlar dizler yerde. Göğüs yere yumruk mesafesine insin, vücut düz kalsın. Maksimum tekrar.',f:[['n','Tekrar']]},
+ {k:'sirt',t:'Sırt · Barda asılı kalma',how:'Barı omuz genişliğinde tut, kollar düz, ayaklar yerden kesik. Kaç saniye dayanabildin? Bar yoksa sağlam bir masanın altına uzan, masa kenarını tutup göğsünü masaya çek: tekrar say.',f:[['n','Sonuç']],mode:[['asili','Barda asılı (sn)'],['ters','Masa altı ters çekiş (tekrar)']],tm:'sw'},
+ {k:'kol',t:'Kol · Biceps curl',how:'Erkek 8 kg, kadın 4 kg dambıl (evde 5 litrelik su bidonu). Dirsekler gövdede, 2 saniyede indir. Maksimum tekrar.',f:[['n','Tekrar'],['kg','Kullandığın ağırlık (kg)']]},
+ {k:'omuz',t:'Omuz · Yana açış',how:'Erkek 4 kg, kadın 2 kg (evde 1,5 litrelik su şişesi). Kolları yana omuz hizasına kadar kaldır. Maksimum tekrar.',f:[['n','Tekrar'],['kg','Kullandığın ağırlık (kg)']]},
+ {k:'omuzMob',t:'Omuz · Duvar testi',how:'Sırtın, başın ve belin duvara yaslı. Kollar düz, yandan yukarı kaldır. Ellerin başının üstünde duvara değiyor mu?',ch:['Değmiyor','Zorlanarak değiyor','Rahat değiyor']},
+ {k:'karin',t:'Karın · Plank',how:'Önkollar yerde, vücut baştan topuğa düz. Kalça düşerse ya da yükselirse dur. Kaç saniye?',f:[['n','Saniye']],tm:'sw'}];
+const TT={draft:{},mode:{sirt:'asili'},tmr:null};
+function tLevel(k,r,kad){const n=+r.n;const L=(v,a,b)=>v>=b?3:v>=a?2:1;
+  if(k==='bacak')return L(n,15,21);
+  if(k==='kalca'){const m=Math.min(+r.sag||0,+r.sol||0);return L(m,8,16);}
+  if(k==='gogus')return kad?L(n,10,20):L(n,5,15);
+  if(k==='sirt')return r.mode==='ters'?L(n,5,13):(kad?L(n,10,30):L(n,20,45));
+  if(k==='kol'||k==='omuz')return L(n,10,16);
+  if(k==='omuzMob')return (+r.ch||0)+1;
+  if(k==='karin')return L(n,30,60);}
+function renderTest(){hdr(false);const p=S.profil||{};const D=TT.draft;
+  let h=`<div class="hero"><b>Başlangıç testi</b><p class="daynote" style="margin:6px 0 0">${p.ad?esc(p.ad)+', p':'P'}rogramını senin seviyene göre hazırlamak için 8 kısa test. Toplam 15–20 dakika.</p></div>
+  <section class="form"><h2>Başlamadan önce</h2><ul style="margin:0;padding-left:18px;display:grid;gap:6px"><li>5 dakika ısın: tempolu yürüyüş ya da bisiklet, birkaç esneme.</li><li>Testler arasında 1–2 dakika dinlen.</li><li>Sadece düzgün formla yaptığın tekrarları say. Form bozulunca dur.</li><li><b>Ağrı olursa testi bırak</b> ve o testte "Ağrı oldu" kutusunu işaretle.</li></ul></section>`;
+  TESTS.forEach((T,i)=>{const r=D[T.k]||{};
+    let body='';
+    if(T.mode)body+=`<div class="pills" role="group">${T.mode.map(([m,l])=>`<button data-tmode="${T.k}" data-m="${m}" aria-pressed="${TT.mode[T.k]===m}">${l}</button>`).join('')}</div>`;
+    if(T.ch)body+=`<div class="pills" role="group">${T.ch.map((l,j)=>`<button data-tch="${T.k}" data-v="${j}" aria-pressed="${String(r.ch)===String(j)}">${l}</button>`).join('')}</div>`;
+    if(T.f)body+=`<div class="two">${T.f.map(([f,l])=>`<label class="fld"><span>${l}</span><input id="t_${T.k}_${f}" data-tk="${T.k}" data-tf="${f}" inputmode="numeric" value="${esc(r[f]!=null?r[f]:(f==='kg'?(isKadin()?(T.k==='kol'?4:2):(T.k==='kol'?8:4)):''))}"></label>`).join('')}</div>`;
+    if(T.tm)body+=`<button class="btn sec" data-ttm="${T.k}" data-mode="${T.tm}" id="tm_${T.k}">${T.tm==='cd30'?'▶ 30 sn sayacı başlat':'▶ Kronometre başlat'}</button>`;
+    body+=`<label class="fld" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="t_${T.k}_agri" data-tk="${T.k}" data-tf="agri" ${r.agri?'checked':''}> <span>Ağrı oldu</span></label>`;
+    h+=`<section class="form pf tst"><h2>${i+1}. ${esc(T.t)}</h2><p class="daynote" style="margin:0">${esc(T.how)}</p>${body}</section>`;});
+  h+=`<p class="err" id="tErr" style="color:var(--warn,#c0392b)"></p><button class="btn" id="saveTest" style="width:100%">Sonuçları kaydet</button>
+  <button class="btn sec" id="skipTest" style="width:100%;margin-top:8px">Sağlık nedeniyle şimdilik test yapamıyorum</button>`;
+  view.innerHTML=h;}
+function tRead(){const D=TT.draft;document.querySelectorAll('[data-tk]').forEach(el=>{const k=el.dataset.tk,f=el.dataset.tf;D[k]=D[k]||{};D[k][f]=el.type==='checkbox'?el.checked:el.value.replace(',','.').replace(/[^0-9.]/g,'');});}
+async function saveTest(skip){tRead();const D=TT.draft,er=document.getElementById('tErr');const kad=isKadin();
+  const sonuc={},seviye={},agri=[];
+  if(!skip){for(const T of TESTS){const r=Object.assign({},D[T.k]||{});if(T.mode)r.mode=TT.mode[T.k];
+      const has=T.ch?r.ch!=null&&r.ch!=='':T.k==='kalca'?(r.sag!==''&&r.sag!=null&&r.sol!==''&&r.sol!=null):(r.n!==''&&r.n!=null);
+      if(!has&&!r.agri){er.textContent='Eksik test: '+T.t+'. Yapamadıysan 0 yaz ya da "Ağrı oldu" işaretle.';document.getElementById(T.ch?'tm_x':'t_'+T.k+'_'+(T.k==='kalca'?'sag':'n'))?.focus();return;}
+      sonuc[T.k]=r;seviye[T.k]=r.agri?1:tLevel(T.k,r,kad);if(r.agri)agri.push(T.k);}}
+  const asym=!skip&&D.kalca?Math.abs((+D.kalca.sag||0)-(+D.kalca.sol||0))/Math.max(+D.kalca.sag||0,+D.kalca.sol||0,1):0;
+  const test={done:true,skip:!!skip,tarih:new Date().toISOString(),sonuc,seviye,agri,kalcaFark:Math.round(asym*100)};
+  const o=Object.assign({},S.profil||{});o.testler=(o.testler||[]).concat([test]).slice(-6);o.test=test;
+  const b=document.getElementById('saveTest');b.disabled=true;
+  try{await S.db.doc('app/profil').set(o);S.profil=o;TT.draft={};S.tab='gun';render();window.scrollTo(0,0);}
+  catch(e){b.disabled=false;er.textContent='Kaydedilemedi, tekrar dene.';}}
+function tTimer(btn){const k=btn.dataset.ttm,mode=btn.dataset.mode;
+  if(TT.tmr){clearInterval(TT.tmr.id);const was=TT.tmr.k;const sec=Math.round((Date.now()-TT.tmr.t0)/1000);TT.tmr=null;
+    if(mode==='sw'&&was===k){const inp=document.getElementById('t_'+k+'_n');if(inp&&!(k==='sirt'&&TT.mode.sirt==='ters')){inp.value=sec;}btn.textContent='▶ Kronometre başlat';return;}
+    document.querySelectorAll('[data-ttm]').forEach(x=>x.textContent=x.dataset.mode==='cd30'?'▶ 30 sn sayacı başlat':'▶ Kronometre başlat');}
+  const t0=Date.now();TT.tmr={k,t0,id:setInterval(()=>{const s=Math.floor((Date.now()-t0)/1000);
+    if(mode==='cd30'){const left=30-s;btn.textContent=left>0?'⏱ '+left+' sn':'✓ Süre doldu, tekrarı yaz';if(left<=0){clearInterval(TT.tmr.id);TT.tmr=null;try{navigator.vibrate&&navigator.vibrate(400);}catch(e){}}}
+    else btn.textContent='■ Durdur · '+s+' sn';},250)};}
+function testSummary(){const t=(S.profil||{}).test;if(!t||t.skip)return '';const nm={bacak:'Bacak',kalca:'Kalça',gogus:'Göğüs',sirt:'Sırt',kol:'Kol',omuz:'Omuz',omuzMob:'Omuz esnekliği',karin:'Karın'};
+  return `<section class="form"><h2>Test sonuçların</h2><div class="pills">${Object.keys(nm).filter(k=>t.seviye[k]).map(k=>`<span class="chipLv">${nm[k]} <b>${t.seviye[k]}</b>/3</span>`).join('')}</div><p class="daynote" style="margin:0">Programın bu seviyelere göre hazırlanacak. Ay sonunda aynı testi tekrar yapıp gelişimini göreceğiz.</p></section>`;}
+
 function renderBekle(){hdr(false);const p=S.profil||{};
-  view.innerHTML=`<div class="hero"><b>Teşekkürler${p.ad?', '+esc(p.ad):''}! ✓</b><p class="daynote" style="margin:6px 0 0">Bilgilerin alındı. Programın hazırlanıyor, hazır olunca burada otomatik görünecek.</p></div>
+  view.innerHTML=`<div class="hero"><b>Teşekkürler${p.ad?', '+esc(p.ad):''}! ✓</b><p class="daynote" style="margin:6px 0 0">Bilgilerin alındı. Programın hazırlanıyor, hazır olunca burada otomatik görünecek.</p></div>${testSummary()}${p.test&&p.test.skip?'<section class="form"><h2>Not</h2><p class="daynote" style="margin:0">Testi şimdilik atladın. Programın hafif başlangıçla hazırlanacak; doktorun onay verince testi Profil sekmesinden yapabilirsin.</p></section>':''}
   <section class="form"><h2>Bu arada</h2><ul style="margin:0;padding-left:18px;display:grid;gap:6px"><li>İlk ölçümlerin kaydedildi. Her Pazar sabahı <b>Ölçüm</b> sekmesinden güncelle.</li><li>Bilgilerini değiştirmek istersen <b>Profil</b> sekmesine git.</li><li>Telefonunda tarayıcı menüsünden <b>Ana ekrana ekle</b> dersen uygulama gibi açılır.</li></ul></section>`;}
 function renderWeek(){
   const P=S.program,base=new Date(S.cur);const dow=(base.getDay()+6)%7;base.setDate(base.getDate()-dow);
@@ -521,6 +582,12 @@ function renderHist(){
 
 // ---------- events
 view.addEventListener('click',e=>{
+  const tm=e.target.closest('[data-tmode]');if(tm){TT.mode[tm.dataset.tmode]=tm.dataset.m;tm.parentNode.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',String(x===tm)));return;}
+  const tc=e.target.closest('[data-tch]');if(tc){const k=tc.dataset.tch;TT.draft[k]=TT.draft[k]||{};TT.draft[k].ch=tc.dataset.v;tc.parentNode.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',String(x===tc)));return;}
+  const tt=e.target.closest('[data-ttm]');if(tt){tTimer(tt);return;}
+  if(e.target.id==='saveTest'){saveTest(false);return;}
+  if(e.target.id==='skipTest'){saveTest(true);return;}
+  if(e.target.id==='redoTest'){S.tab='test';render();window.scrollTo(0,0);return;}
   const go=e.target.closest('[data-go]');if(go){S.cur=parseKey(go.dataset.go);S.tab='gun';render();window.scrollTo(0,0);return;}
   const b=e.target.closest('button[data-id]');
   if(b){const id=b.dataset.id,i=+b.dataset.i;mutate(L=>{const it=L.items[id]||(L.items[id]={});const d0=(it.d||[]).slice();d0[i]=!d0[i];it.d=d0;});
