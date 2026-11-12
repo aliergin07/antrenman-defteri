@@ -211,6 +211,7 @@ textarea{width:100%;min-height:70px;border:1px solid var(--line);border-radius:8
       <button class="todaybtn" id="today" hidden>Bugüne dön</button>
       <button class="knee" id="knee" aria-pressed="false">Diz: normal</button>
       <div class="seg" id="seg" role="group" aria-label="Seans">
+        <button data-s="antrenman" aria-pressed="false" hidden>Antrenman</button>
         <button data-s="sabah" aria-pressed="true">Sabah</button>
         <button data-s="aksam" aria-pressed="false">Akşam</button>
         <button data-s="yemek" aria-pressed="false">Yemek</button>
@@ -352,9 +353,26 @@ function mutate(fn){
 }
 let flashT=null;function flash(t){const el=document.getElementById('savedMsg');if(el){el.textContent=t;clearTimeout(flashT);flashT=setTimeout(()=>{el.textContent='';},2500);}}
 
+// ---------- seanslar
+// Anahtarlar: sabah, aksam, antrenman (ya da başka bir ad). Programın hiçbir gününde birden fazla dolu seans yoksa tek "Antrenman" sekmesi gösterilir.
+function dayOf(d){const P=S.program||{};return (P.dates||{})[keyOf(d)]||(P.days||{})[String(d.getDay())];}
+function sessKeys(day){const ss=(day&&day.sessions)||{};return Object.keys(ss).filter(k=>Array.isArray(ss[k])&&ss[k].length);}
+function singleSess(){const P=S.program||{};return ![...Object.values(P.days||{}),...Object.values(P.dates||{})].some(day=>sessKeys(day).length>1);}
+// Seçili sekmenin blokları. Tek seanslıda günün seansı (anahtar adı ne olursa olsun); iki seanslıda akşam dışındaki her şey Sabah'ta.
+function blocksFor(day,sess){const ss=(day&&day.sessions)||{};return sessKeys(day).filter(k=>singleSess()||(sess==='aksam')===(k==='aksam')).reduce((a,k)=>a.concat(ss[k]),[]);}
+// Varsayılan seans: gün değişince yeniden seçilir; kullanıcının o gün için seçimi korunur.
+function syncSess(){
+  if(!S.program||S.sess==='yemek')return;
+  const dk=keyOf(S.cur);
+  if(singleSess()){S.sess='antrenman';S.sessDay=dk;return;}
+  if(S.sessDay===dk&&S.sess!=='antrenman')return;
+  const day=dayOf(S.cur),sb=blocksFor(day,'sabah').length,ak=blocksFor(day,'aksam').length;
+  S.sess=sb&&!ak?'sabah':ak&&!sb?'aksam':(new Date().getHours()<14?'sabah':'aksam');S.sessDay=dk;
+}
+
 // ---------- render
 function render(){
-  hdr(true);
+  hdr(true);syncSess();
   document.querySelectorAll('.tabbar button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.t===S.tab)));
   const d=S.cur,todayKey=keyOf(new Date());
   document.getElementById('dayName').textContent=(keyOf(d)===todayKey?'Bugün · ':'')+DAYS[d.getDay()];
@@ -362,7 +380,8 @@ function render(){
   document.getElementById('dayMeta').textContent=d.getDate()+' '+MONTHS[d.getMonth()]+(S.program?' · Hafta '+wk+'/'+(S.program.weeks||9)+(S.program.deload===wk?' · deload':''):'');
   document.getElementById('today').hidden=keyOf(d)===todayKey;
   const kb=document.getElementById('knee');const kOn=S.settings.knee==='sivi'&&!!(S.program&&S.program.kneeMode);kb.classList.toggle('on',kOn);kb.textContent=kOn?'Diz: sıvı var':'Diz: normal';kb.setAttribute('aria-pressed',String(kOn));kb.hidden=!(S.program&&S.program.kneeMode);
-  document.querySelectorAll('#seg button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.s===S.sess)));
+  const one=!!S.program&&singleSess();
+  document.querySelectorAll('#seg button').forEach(b=>{b.setAttribute('aria-pressed',String(b.dataset.s===S.sess));if(b.dataset.s!=='yemek')b.hidden=(b.dataset.s==='antrenman')!==one;});
   document.getElementById('seg').style.visibility=S.tab==='gun'&&S.program?'visible':'hidden';
   document.getElementById('timer').hidden=!(S.tab==='gun'&&S.sess!=='yemek'&&S.program);
   if(S.noDb){hdr(false);view.innerHTML='<div class="hero"><b>Bu link geçersiz</b><p class="daynote" style="margin:6px 0 0">Sana gönderilen kişisel linki eksiksiz açtığından emin ol. Sorun devam ederse programını hazırlayan kişiye yaz.</p></div>';return;}
@@ -379,17 +398,17 @@ function render(){
 }
 function rehberLink(ex){const base=S.program.rehber;return base?base+'#'+(ex.g||ex.id):null;}
 function renderDay(){
-  const P=S.program,d=S.cur,wk=weekOf(d),dow=String(d.getDay());
-  const day=(P.dates||{})[keyOf(d)]||(P.days||{})[dow];const L=curLog();const kOn=S.settings.knee==='sivi'&&!!P.kneeMode;const dk=keyOf(d);
+  const P=S.program,d=S.cur,wk=weekOf(d);
+  const day=dayOf(d);const L=curLog();const kOn=S.settings.knee==='sivi'&&!!P.kneeMode;const dk=keyOf(d);
   let h='';
   if(!day){view.innerHTML='<p class="empty">Bu gün için program yok.</p>';return;}
   h+=`<h1 class="daytitle">${esc(day.title||'')}</h1>`;
   if(day.note)h+=`<p class="daynote">${esc(day.note)}</p>`;
   if(kOn)h+=`<div class="banner"><b>Diz modu açık:</b> dizde sıvı varken bacağa yük bindiren hareketler kapalı, yerine diz dostu hareketler geldi. Sıvı geçince "Diz" düğmesine dokunup normale dön.</div>`;
   if(kOn&&day.kneeNote)h+=`<div class="banner">${esc(day.kneeNote)}</div>`;
-  const keys=(day.sessions&&day.sessions[S.sess])||[];
+  const keys=blocksFor(day,S.sess);
   if(keys.length&&calOn(wk))h+=`<div class="hero" id="calInfo"><b>${wk}. hafta: ağırlık bulma haftası</b><p class="daynote" style="margin:6px 0 0">Bu hafta her harekette sana uygun ağırlığı buluyoruz. Isınma setinden sonra önerilen ağırlıkla hedef tekrarı yap, sonra "kaç tekrar daha yapabilirdin?" sorusunu cevapla. Uygulama ağırlığı ayarlayacak.</p></div>`;
-  if(!keys.length)h+=`<p class="empty">${S.sess==='sabah'?'Bu sabah antrenman yok.':'Bu akşam antrenman yok.'}</p>`;
+  if(!keys.length)h+=`<p class="empty">${S.sess==='sabah'?'Bu sabah antrenman yok.':S.sess==='aksam'?'Bu akşam antrenman yok.':'Bugün antrenman yok.'}</p>`;
   for(const bk of keys){
     const B=(P.blocks||{})[bk];if(!B)continue;
     const items=(B.items||[]).filter(ex=>{
@@ -694,9 +713,9 @@ function renderWeek(){
   const P=S.program,base=new Date(S.cur);const dow=(base.getDay()+6)%7;base.setDate(base.getDate()-dow);
   const wk=weekOf(base);let h=`<h1 class="daytitle">Hafta ${wk}${P.deload===wk?' · deload':''}</h1><div class="week">`;
   for(let i=0;i<7;i++){const d=new Date(base);d.setDate(base.getDate()+i);const day=(P.dates||{})[keyOf(d)]||(P.days||{})[String(d.getDay())]||{};
-    const blk=k=>((P.blocks||{})[k]||{}).t||k;const sb=((day.sessions||{}).sabah||[]).map(blk).join(', ');const ak=((day.sessions||{}).aksam||[]).map(blk).join(', ');
+    const blk=k=>((P.blocks||{})[k]||{}).t||k;const one=singleSess(),sb=blocksFor(day,'sabah').map(blk).join(', '),ak=blocksFor(day,'aksam').map(blk).join(', ');
     const L=S.logs[keyOf(d)];const n=L?Object.values(L.items||{}).reduce((a,x)=>a+(x.d||[]).filter(Boolean).length,0):0;
-    h+=`<button class="wd${keyOf(d)===keyOf(new Date())?' today':''}" data-go="${keyOf(d)}"><b>${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}</b> · ${esc(day.title||'')}${n?` · ✓ ${n} set`:''}<p>Sabah: ${esc(sb||'—')}</p><p>Akşam: ${esc(ak||'—')}</p></button>`;}
+    h+=`<button class="wd${keyOf(d)===keyOf(new Date())?' today':''}" data-go="${keyOf(d)}"><b>${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}</b> · ${esc(day.title||'')}${n?` · ✓ ${n} set`:''}${one?`<p>Antrenman: ${esc(sb||'—')}</p>`:`<p>Sabah: ${esc(sb||'—')}</p><p>Akşam: ${esc(ak||'—')}</p>`}</button>`;}
   view.innerHTML=h+'</div>';
 }
 function renderHist(){
@@ -755,7 +774,7 @@ view.addEventListener('change',async e=>{
 document.getElementById('prev').onclick=()=>{S.cur.setDate(S.cur.getDate()-(S.tab==='hafta'?7:1));S.cur=new Date(S.cur);render();};
 document.getElementById('next').onclick=()=>{S.cur.setDate(S.cur.getDate()+(S.tab==='hafta'?7:1));S.cur=new Date(S.cur);render();};
 document.getElementById('today').onclick=()=>{S.cur=new Date();S.cur.setHours(0,0,0,0);render();};
-document.querySelectorAll('#seg button').forEach(b=>b.onclick=()=>{S.sess=b.dataset.s;render();});
+document.querySelectorAll('#seg button').forEach(b=>b.onclick=()=>{S.sess=b.dataset.s;S.sessDay=keyOf(S.cur);render();});
 document.querySelectorAll('.tabbar button').forEach(b=>b.onclick=()=>{S.tab=b.dataset.t;render();window.scrollTo(0,0);});
 let kneeBusy=false;
 document.getElementById('knee').onclick=async()=>{
