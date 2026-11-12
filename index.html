@@ -193,6 +193,17 @@ textarea{width:100%;min-height:70px;border:1px solid var(--line);border-radius:8
 .calres b{font-family:var(--display);font-size:2rem;line-height:1.1;color:var(--accent);font-variant-numeric:tabular-nums}
 .callbl{font-size:.88rem;color:var(--muted)}
 .cal .sm{min-height:36px;justify-self:start}
+.hz{margin-top:14px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;display:grid;gap:10px}
+.hz h2{font-family:var(--display);font-size:1.05rem;letter-spacing:.02em;margin:0}
+.hz label{font-size:.88rem;font-weight:600;display:block;margin-bottom:4px}
+.hz label span{font-weight:400;color:var(--muted)}
+.hz .sm{min-height:36px;justify-self:start}
+.hzrow{margin-top:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:6px 6px 6px 12px;font-size:.92rem}
+.hzrow b{display:inline-flex;align-items:center;gap:6px}
+.hzrow .sm{margin-left:auto;min-height:36px}
+.hzdot{width:12px;height:12px;border-radius:50%;border:2px solid var(--done);background:var(--done);flex:0 0 auto}
+.hzdot.sari{border-color:var(--warn);background:transparent}
+.hzdot.kirmizi{border-color:var(--warn);background:var(--warn)}
 .gains{display:grid}
 .gain{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:8px 0;font-size:.92rem;font-variant-numeric:tabular-nums}
 .gain+.gain{border-top:1px dashed var(--line)}
@@ -250,6 +261,43 @@ function weekOf(d){
 }
 function pick(v,wk){if(!Array.isArray(v))return v;let out=v[0][1];for(const [f,val] of v){if(wk>=f)out=val;}return out;}
 function setsFor(ex,wk){let s=pick(ex.s==null?0:ex.s,wk);if(s&&S.program&&wk===S.program.deload)s=Math.max(1,Math.ceil(s/2));return s||0;}
+
+// ---------- günlük hazırlık (L.hazir = {uyku, enerji, agri, renk, t})
+const HZ_AD={yesil:'Yeşil',sari:'Sarı',kirmizi:'Kırmızı'};
+function hzRenk(v){
+  if(v.agri>=6||(v.uyku<=2&&v.enerji<=2))return 'kirmizi';
+  if(v.uyku<=2||v.enerji<=2||v.agri>=4)return 'sari';
+  return 'yesil';
+}
+const hzHafif=L=>!!(L&&L.hazir&&(L.hazir.renk==='sari'||L.hazir.renk==='kirmizi'));
+// Sarı/kırmızı günde setler %30 azalır, en az 1 set kalır (deload yarılamasından sonra uygulanır).
+function hzSets(s,L){return s&&hzHafif(L)?Math.max(1,Math.round(s*0.7)):s;}
+const hz={day:null,d:{},edit:false};
+function hzCard(L,dk){
+  if(hz.day!==dk){hz.day=dk;hz.d={};hz.edit=false;}
+  const H=L.hazir,lock=S.readonly||dk<keyOf(new Date());
+  const dot=H?`<span class="hzdot ${esc(H.renk)}"></span>`:'';
+  let h='';
+  if(H&&!(hz.edit&&!lock))h=`<div class="hzrow" id="hzRow"><span>Hazırlık:</span><b>${dot}${esc(HZ_AD[H.renk]||'')}</b>${lock?'':'<button class="sm" data-hzedit>Değiştir</button>'}</div>`;
+  else if(lock)return '';
+  else{
+    const v=Object.assign({},H,hz.d);
+    const row=(f,from,to)=>{let b='';for(let i=from;i<=to;i++)b+=`<button data-hz="${f}" data-v="${i}" aria-pressed="${v[f]===i}">${i}</button>`;return `<div class="pills" role="group">${b}</div>`;};
+    h=`<section class="hz" id="hzCard"><h2>Bugün nasıl hissediyorsun?</h2>
+      <div><label>Uyku <span>(1 kötü – 5 çok iyi)</span></label>${row('uyku',1,5)}</div>
+      <div><label>Enerji <span>(1 düşük – 5 yüksek)</span></label>${row('enerji',1,5)}</div>
+      <div><label>Kas/eklem ağrısı <span>(0 yok – 10 çok şiddetli)</span></label>${row('agri',0,10)}</div>
+      ${H?`<div class="hzrow" style="margin:0;border:0;padding:0"><span>Hazırlık:</span><b>${dot}${esc(HZ_AD[H.renk]||'')}</b><button class="sm" data-hzok>Tamam</button></div>`:''}</section>`;
+  }
+  if(hzHafif(L))h+=`<div class="banner" id="hzBanner"><b>Bugün hafif gün:</b> setler azaltıldı, ana harekette 3–4 tekrar fazla bırak. Ağırlık artırma.${H.renk==='kirmizi'?' Ağırlıkları %10 azaltabilirsin. Kendini iyi hissetmiyorsan bugünü atlayabilirsin.':''}</div>`;
+  return h;
+}
+function hzPick(f,v){
+  const dk=keyOf(S.cur);if(hz.day!==dk){hz.day=dk;hz.d={};hz.edit=false;}
+  hz.d[f]=v;const x=Object.assign({},curLog().hazir,hz.d);
+  if(x.uyku==null||x.enerji==null||x.agri==null)return;
+  mutate(L=>{L.hazir={uyku:x.uyku,enerji:x.enerji,agri:x.agri,renk:hzRenk(x),t:new Date().toISOString()};});hz.d={};
+}
 
 function autoSug(lw,r,sets){
   if(!lw||!lw.w)return null;const w=num(lw.w);if(!(w>0))return null;
@@ -407,6 +455,7 @@ function renderDay(){
   if(kOn)h+=`<div class="banner"><b>Diz modu açık:</b> dizde sıvı varken bacağa yük bindiren hareketler kapalı, yerine diz dostu hareketler geldi. Sıvı geçince "Diz" düğmesine dokunup normale dön.</div>`;
   if(kOn&&day.kneeNote)h+=`<div class="banner">${esc(day.kneeNote)}</div>`;
   const keys=blocksFor(day,S.sess);
+  if(keys.length)h+=hzCard(L,dk);
   if(keys.length&&calOn(wk))h+=`<div class="hero" id="calInfo"><b>${wk}. hafta: ağırlık bulma haftası</b><p class="daynote" style="margin:6px 0 0">Bu hafta her harekette sana uygun ağırlığı buluyoruz. Isınma setinden sonra önerilen ağırlıkla hedef tekrarı yap, sonra "kaç tekrar daha yapabilirdin?" sorusunu cevapla. Uygulama ağırlığı ayarlayacak.</p></div>`;
   if(!keys.length)h+=`<p class="empty">${S.sess==='sabah'?'Bu sabah antrenman yok.':S.sess==='aksam'?'Bu akşam antrenman yok.':'Bugün antrenman yok.'}</p>`;
   for(const bk of keys){
@@ -422,7 +471,7 @@ function renderDay(){
     let cards='';
     for(const ex of items){
       const id=bk+'.'+ex.id;const st=(L.items||{})[id]||{};const off=kOn&&ex.leg;
-      const s=setsFor(ex,wk);const r=pick(ex.r||'',wk);
+      const s=hzSets(setsFor(ex,wk),L);const r=pick(ex.r||'',wk);
       const T=calT(r);const calM=!off&&s>0&&ex.w!==false&&T>0&&calOn(wk)&&(!!st.cal||!calPrev(ex.id,dk,id));
       const dose=calM?'hedef '+T+' tekrar':s?(s+' × '+r):r;
       const link=rehberLink(ex);
@@ -725,7 +774,7 @@ function renderHist(){
   let h='<div class="hist">';
   for(const k of keys){const L=S.logs[k];const d=parseKey(k);let sets=0;const ws=[];
     for(const ik in (L.items||{})){const it=L.items[ik];sets+=(it.d||[]).filter(Boolean).length;if(it.w)ws.push(`${names[ik.split('.').pop()]||ik}: ${it.w}${it.reps&&it.reps.some(Boolean)?' × '+it.reps.filter(Boolean).join('/'):''}`);}
-    h+=`<article class="hi"><b>${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}</b><div class="meta">${sets} set${L.knee!=null?' · diz '+L.knee+'/3':''}${L.pain!=null?' · ağrı '+L.pain+'/10':''}</div>${ws.length?`<ul>${ws.map(w=>`<li>${esc(w)}</li>`).join('')}</ul>`:''}${L.saglik&&L.saglik.ozet?`<p class="meta">⌚ ${esc(L.saglik.ozet)}</p>`:''}${L.note?`<p class="meta">${esc(L.note)}</p>`:''}</article>`;}
+    h+=`<article class="hi"><b>${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}</b><div class="meta">${sets} set${L.knee!=null?' · diz '+L.knee+'/3':''}${L.pain!=null?' · ağrı '+L.pain+'/10':''}${L.hazir&&HZ_AD[L.hazir.renk]?' · hazırlık: '+HZ_AD[L.hazir.renk].toLocaleLowerCase('tr'):''}</div>${ws.length?`<ul>${ws.map(w=>`<li>${esc(w)}</li>`).join('')}</ul>`:''}${L.saglik&&L.saglik.ozet?`<p class="meta">⌚ ${esc(L.saglik.ozet)}</p>`:''}${L.note?`<p class="meta">${esc(L.note)}</p>`:''}</article>`;}
   view.innerHTML=h+'</div>';
 }
 
@@ -738,6 +787,9 @@ view.addEventListener('click',e=>{
   if(e.target.id==='skipTest'){saveTest(true);return;}
   if(e.target.id==='redoTest'){S.tab='test';render();window.scrollTo(0,0);return;}
   const go=e.target.closest('[data-go]');if(go){S.cur=parseKey(go.dataset.go);S.tab='gun';render();window.scrollTo(0,0);return;}
+  const hp=e.target.closest('[data-hz]');if(hp){hzPick(hp.dataset.hz,+hp.dataset.v);render();return;}
+  if(e.target.closest('[data-hzedit]')){hz.day=keyOf(S.cur);hz.d={};hz.edit=true;render();return;}
+  if(e.target.closest('[data-hzok]')){hz.edit=false;hz.d={};render();return;}
   const cw=e.target.closest('[data-calwarm]');if(cw){const id=cw.dataset.calwarm;mutate(L=>{const it=L.items[id]||(L.items[id]={});it.cal=Object.assign({},it.cal,{warm:!(it.cal&&it.cal.warm)});});render();return;}
   const cu=e.target.closest('[data-calundo]');if(cu){calUndo(cu.dataset.calundo);render();return;}
   const cr=e.target.closest('[data-rir]');if(cr){const box=cr.closest('[data-cal]'),id=box.dataset.cal;const w=num(box.querySelector('[data-calw]').value),reps=Math.round(num(box.querySelector('[data-calr]').value));
