@@ -15,8 +15,11 @@ Kişiye özel antrenman ve beslenme takip uygulaması. Ali (ürün sahibi) müş
   - profil jsonb, program jsonb, targets jsonb (default `{}`), settings jsonb (**NOT NULL**, boş için `{}`)
   - active, created_at, updated_at
 - `pt_logs`: (client_id, day date) primary key, data jsonb
-- `pt_exercises` (id, data): hareket kütüphanesi. Sadece koç kullanır, istemci okumaz.
-- `pt_templates` (id, data): program şablonları, ör. `fullbody_3g_baslangic`.
+- `pt_exercises` (id, data): hareket kütüphanesi (170 hareket). Sadece koç ve program oluşturucu kullanır, istemci okumaz.
+  - Alanlar: `id, n (TR ad), en, b (bölge), p, slot (hareket kalıbı), e (ekipman), lv (1–3), faz (rehab 1–3), cue, w, leg (dize yük), bel (bele yük), alt {kolay, zor, ev, makine, diz, bel, agri}, q`.
+- `pt_templates` (id, data):
+  - `fullbody_3g_baslangic`, `ust_alt_4g`: program şablonları (bloklar + workouts + schedule).
+  - **`kurallar`: program kurma kuralları (şu an sürüm 4).** Program oluşturan her kod/AI bu belgeye uymak zorunda: 6 ilke, slot seviye zincirleri, hedefe göre doz, haftalık set eşikleri, hareket kalıbı kapsamı, çift ilerleme, toparlanma, varyasyon, kısıt (diz/bel/omuz/baldır/boyun) kuralları. Kaynak: ACSM 2026 Position Stand. Kuralları değiştirmeden önce Ali'ye sor.
 - RLS açık, policy yok. Tablolara anon/authenticated erişimi kapalı.
 - RPC'ler:
 
