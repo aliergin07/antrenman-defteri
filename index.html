@@ -199,6 +199,14 @@ textarea{width:100%;min-height:70px;border:1px solid var(--line);border-radius:8
 .pills .formb[aria-pressed="true"]{background:var(--warn-soft);border-color:var(--warn);color:var(--warn)}
 .sug{font-size:.85rem;font-weight:600;color:var(--warn)}
 .sug.more{color:var(--accent)}
+.sugrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.sugrow .sug{flex:1;min-width:0}
+.sugrow .kq{flex:1 0 100%}
+.kad{margin-left:auto;min-height:36px;padding:0 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--muted);font-size:.8rem;font-weight:600;cursor:pointer;white-space:nowrap;font-variant-numeric:tabular-nums}
+.kad[aria-expanded="true"]{border-color:var(--accent);color:var(--accent)}
+.kq{background:var(--accent-soft);border-radius:8px;padding:10px 12px;display:grid;gap:8px;font-size:.92rem}
+.kq .pills button{padding:0 10px}
+.kq .pills button:not([aria-pressed="true"]){background:var(--surface)}
 .hz{margin-top:14px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;display:grid;gap:10px}
 .hz h2{font-family:var(--display);font-size:1.05rem;letter-spacing:.02em;margin:0}
 .hz label{font-size:.88rem;font-weight:600;display:block;margin-bottom:4px}
@@ -305,9 +313,32 @@ function hzPick(f,v){
   mutate(L=>{L.hazir={uyku:x.uyku,enerji:x.enerji,agri:x.agri,renk:hzRenk(x),t:new Date().toISOString()};});hz.d={};
 }
 
-// Çift ilerleme önerisi. Döner: {t:'up',kg} (ağırlık artır) | {t:'reps',n} (önce tekrarı artır) | {t:'hold',why} (güvenlik kapısı kapalı) | null.
-function autoSug(lw,r,sets){
-  if(!lw||!lw.w)return null;const w=num(lw.w);if(!(w>0))return null;
+// ---------- kademe: salondaki en küçük ağırlık artışı (settings.kademe = {tur:{alet:kg}, hareket:{exId:kg}})
+const KAD_OPT={dambil:[1,2,2.5],bar:[2.5,5],makine:[2.5,5,7],kablo:[1.25,2.5,5]};
+const KAD_AD={dambil:'dambıl',bar:'bar',makine:'makine',kablo:'kablo'};
+const kadTur=ex=>ex.alet==='destek'?'makine':ex.alet;
+// Sıra: harekete özel → alet türü → programdaki inc → varsayılan (20 kg altı 2, üstü 2,5). tur değeri 0 = "Bilmiyorum".
+function kademe(ex,w){
+  const K=S.settings.kademe||{};const h=num((K.hareket||{})[ex.id]);if(h>0)return h;
+  const t=num((K.tur||{})[kadTur(ex)]);if(t>0)return t;
+  const i=num(ex.inc);if(i>0)return i;
+  return w<20?2:2.5;
+}
+async function saveKademe(fn){
+  if(!S.db||S.readonly)return;
+  const K=JSON.parse(JSON.stringify(S.settings.kademe||{}));K.tur=K.tur||{};K.hareket=K.hareket||{};fn(K);
+  S.settings=Object.assign({},S.settings,{kademe:K});render();
+  try{await S.db.doc('app/settings').set(S.settings);flash('Kaydedildi');}catch(e){flash('Kademe kaydedilemedi, tekrar dene');}
+}
+let kadOpen=null;
+function kadQ(alet){
+  const b=KAD_OPT[alet].map(v=>`<button data-kqv="${v}">${fmtKg(v)}</button>`).join('');
+  return `<div class="kq" data-kq="${alet}"><span>Bu salonda <b>${KAD_AD[alet]}</b> ağırlıkları kaçar kilo artıyor?</span><div class="pills" role="group">${b}<button data-kqv="0">Bilmiyorum</button></div></div>`;
+}
+// Çift ilerleme önerisi. Döner: {t:'up',kg} (ağırlık artır) | {t:'down',kg} (desteği azalt) | {t:'reps',n} (önce tekrarı artır) | {t:'hold',why} (güvenlik kapısı kapalı) | null.
+function autoSug(lw,r,sets,ex){
+  ex=ex||{};const noKg=ex.alet==='lastik'||ex.alet==='diger';
+  if(!lw||!lw.w)return null;const w=num(lw.w);if(!(w>0)&&!noKg)return null;
   const head=String(r||'').split('·')[0].split('/')[0];const ns=(head.match(/\d+/g)||[]).map(Number);if(!ns.length)return null;
   const top=Math.max(...ns);const reps=(lw.reps||[]).filter(Boolean).map(Number);
   if(reps.length<Math.max(1,Math.min(sets||1,2)))return null;
@@ -315,10 +346,15 @@ function autoSug(lw,r,sets){
   // Güvenlik kapısı: girilmemiş alan (eski kayıt) engel sayılmaz.
   const why=lw.pain>=4?'ağrı vardı':lw.hazir&&lw.hazir.renk==='kirmizi'?'kendini iyi hissetmiyordun':lw.rir===0?'son sette hiç tekrar kalmamıştı':lw.form==='bozuk'?'form bozulmuştu':'';
   if(why)return {t:'hold',why};
+  const more=reps.every(x=>x>=top+3);
+  // Lastik / diğer: kg önerisi yok, yalnızca tekrar.
+  if(noKg)return more?null:{t:'reps',n:top+3};
+  const inc=kademe(ex,w);
+  // Destekli hareket: ilerleme ters, destek azalır.
+  if(ex.alet==='destek')return {t:'down',kg:fmtKg(Math.max(0,w-inc))+' kg'};
   // Küçük adım: artış ağırlığın %10'undan büyükse önce tekrar (üst sınır + 3).
-  const inc=w<20?2:2.5;
-  if(inc>w*0.1+1e-9&&!reps.every(x=>x>=top+3))return {t:'reps',n:top+3};
-  return {t:'up',kg:(Math.round((w+inc)*10)/10).toString().replace('.',',')+' kg'};
+  if(inc>w*0.1+1e-9&&!more)return {t:'reps',n:top+3};
+  return {t:'up',kg:fmtKg(w+inc)+' kg'};
 }
 function curLog(){return S.logs[keyOf(S.cur)]||{date:keyOf(S.cur),items:{}};}
 function lastWeight(exid,beforeKey){
@@ -328,11 +364,11 @@ function lastWeight(exid,beforeKey){
 }
 
 // ---------- ağırlık bulma haftası (program.kalibrasyon)
-const fmtKg=n=>(Math.round(n*10)/10).toString().replace('.',',');
+const fmtKg=n=>(Math.round(n*100)/100).toString().replace('.',',');
 const calDraft={};
 function calOn(wk){const k=S.program&&S.program.kalibrasyon;return !!(k&&Array.isArray(k.hafta)&&k.hafta.includes(wk));}
 function calT(r){const head=String(r||'').split('·')[0].split('/')[0];const ns=(head.match(/\d+/g)||[]).map(Number);if(!ns.length)return 0;return ns.length>1?Math.round((ns[0]+ns[1])/2):ns[0];}
-function calInc(ex){const i=num(ex.inc);return i>0?i:2;}
+function calInc(ex){return kademe(ex,num(ex.w0));}
 function findEx(id){const i=id.lastIndexOf('.');const B=((S.program||{}).blocks||{})[id.slice(0,i)];return B&&(B.items||[]).find(x=>x.id===id.slice(i+1));}
 // Bu hareketin en son tamamlanmış ağırlık bulma sonucu (selfId: o günkü kendi kaydı hariç).
 function calPrev(exid,dk,selfId){
@@ -467,7 +503,7 @@ function renderDay(){
   if(day.note)h+=`<p class="daynote">${esc(day.note)}</p>`;
   if(kOn)h+=`<div class="banner"><b>Diz modu açık:</b> dizde sıvı varken bacağa yük bindiren hareketler kapalı, yerine diz dostu hareketler geldi. Sıvı geçince "Diz" düğmesine dokunup normale dön.</div>`;
   if(kOn&&day.kneeNote)h+=`<div class="banner">${esc(day.kneeNote)}</div>`;
-  const keys=blocksFor(day,S.sess);
+  const keys=blocksFor(day,S.sess);const asked=new Set();
   if(keys.length)h+=hzCard(L,dk);
   if(keys.length&&calOn(wk))h+=`<div class="hero" id="calInfo"><b>${wk}. hafta: ağırlık bulma haftası</b><p class="daynote" style="margin:6px 0 0">Bu hafta her harekette sana uygun ağırlığı buluyoruz. Isınma setinden sonra önerilen ağırlıkla hedef tekrarı yap, sonra "kaç tekrar daha yapabilirdin?" sorusunu cevapla. Uygulama ağırlığı ayarlayacak.</p></div>`;
   if(!keys.length)h+=`<p class="empty">${S.sess==='sabah'?'Bu sabah antrenman yok.':S.sess==='aksam'?'Bu akşam antrenman yok.':'Bugün antrenman yok.'}</p>`;
@@ -481,7 +517,7 @@ function renderDay(){
     if(kOn)items.sort((a,b)=>(a.leg?1:0)-(b.leg?1:0));
     if(!items.length)continue;
     let doneN=0,totN=0;
-    let cards='';
+    let cards='';const KT=(S.settings.kademe||{}).tur||{};
     for(const ex of items){
       const id=bk+'.'+ex.id;const st=(L.items||{})[id]||{};const off=kOn&&ex.leg;
       const s=hzSets(setsFor(ex,wk),L);const r=pick(ex.r||'',wk);
@@ -497,18 +533,24 @@ function renderDay(){
         else if(s){let b='';const rr=st.reps||[];const ph=(String(r).match(/\d+/g)||[''])[0];const repOk=ex.w!==false;
           for(let i=0;i<s;i++){const on=!!d0[i];totN++;if(on)doneN++;const btn=`<button class="set" data-id="${esc(id)}" data-i="${i}" aria-pressed="${on}" aria-label="Set ${i+1}">${i+1}</button>`;
             b+=repOk?`<div class="setcol">${btn}<input class="rep" inputmode="numeric" data-rid="${esc(id)}" data-ri="${i}" value="${esc(rr[i]||'')}" placeholder="${esc(ph)}" aria-label="Set ${i+1} tekrar"></div>`:btn;}
-          const lw=ex.w===false?null:lastWeight(ex.id,dk);const sg=autoSug(lw,r,s),light=hzHafif(L);
+          const lw=ex.w===false?null:lastWeight(ex.id,dk);const sg=autoSug(lw,r,s,ex),light=hzHafif(L);
           const tg=S.targets[ex.id]&&S.targets[ex.id].w;const cp=ex.w===false||tg?null:calPrev(ex.id,dk,id);const hedef=tg||(cp?fmtKg(cp.w)+' kg':'');
-          const wIn=ex.w===false?'':`<div class="w"><input inputmode="decimal" id="w-${esc(id)}" data-id="${esc(id)}" value="${esc(st.w||'')}" placeholder="${esc(tg||(cp?fmtKg(cp.w):'')||'kg / bant')}" aria-label="${esc(ex.n)} ağırlık">${hedef?`<small class="hedef">Hedef: ${esc(hedef)}</small>`:''}${lw?`<small>Geçen: ${esc(lw.w)}${lw.reps&&lw.reps.some(Boolean)?' × '+esc(lw.reps.filter(Boolean).join('/')):''}</small>`:''}${sg&&sg.t==='up'&&!light?`<small class="hedef">↑ Öneri: ${esc(sg.kg)}</small>`:''}</div>`;
-          const sgTxt=!sg?'':sg.t==='hold'?'Bu hafta aynı ağırlık: '+sg.why:light?'Bugün ağırlık artırma':sg.t==='reps'?'Önce tekrarı artır: '+sg.n+' tekrara çık':'';
+          const wIn=ex.w===false?'':`<div class="w"><input inputmode="decimal" id="w-${esc(id)}" data-id="${esc(id)}" value="${esc(st.w||'')}" placeholder="${esc(tg||(cp?fmtKg(cp.w):'')||'kg / bant')}" aria-label="${esc(ex.n)} ağırlık">${hedef?`<small class="hedef">Hedef: ${esc(hedef)}</small>`:''}${lw?`<small>Geçen: ${esc(lw.w)}${lw.reps&&lw.reps.some(Boolean)?' × '+esc(lw.reps.filter(Boolean).join('/')):''}</small>`:''}${sg&&sg.t==='up'&&!light?`<small class="hedef">↑ Öneri: ${esc(sg.kg)}</small>`:''}${sg&&sg.t==='down'&&!light?`<small class="hedef">↓ Destek: ${esc(sg.kg)}</small>`:''}</div>`;
+          const sgTxt=!sg?'':sg.t==='hold'?'Bu hafta aynı ağırlık: '+sg.why:light?(sg.t==='down'?'Bugün desteği azaltma':'Bugün ağırlık artırma'):sg.t==='reps'?'Önce tekrarı artır: '+sg.n+' tekrara çık':'';
           let lp='';if(repOk)for(let i=0;i<=4;i++)lp+=`<button data-lr="${esc(id)}" data-v="${i}" aria-pressed="${st.rir===i}" aria-label="${i===4?'4 veya daha fazla':i} tekrar daha">${i===4?'4+':i}</button>`;
           const last=repOk?`<div class="last"><span class="callbl">Son sette kaç tekrar daha yapabilirdin?</span><div class="pills" role="group">${lp}<button class="formb" data-form="${esc(id)}" aria-pressed="${st.form==='bozuk'}">Form bozuldu</button></div></div>`:'';
-          ctl=`<div class="sets">${b}${wIn}</div>${sgTxt?`<div class="sug${sg.t==='reps'&&!light?' more':''}">${esc(sgTxt)}</div>`:''}${last}`;}
+          const ko=sg&&repOk?KAD_OPT[kadTur(ex)]:null;let kad='';
+          if(ko){const open=kadOpen===id,hv=num(((S.settings.kademe||{}).hareket||{})[ex.id]);
+            kad=`<button class="kad" data-kad="${esc(id)}" aria-expanded="${open}">kademe: ${fmtKg(kademe(ex,num(lw.w)))} kg</button>`;
+            if(open)kad+=`<div class="kq" data-kadbox="${esc(id)}"><span>Bu harekette ağırlık kaçar kilo artıyor?</span><div class="pills" role="group">${ko.map(v=>`<button data-kadv="${v}" aria-pressed="${hv===v}">${fmtKg(v)}</button>`).join('')}</div></div>`;}
+          const sgRow=sgTxt||kad?`<div class="sugrow">${sgTxt?`<div class="sug${sg.t==='reps'&&!light?' more':''}">${esc(sgTxt)}</div>`:''}${kad}</div>`:'';
+          ctl=`<div class="sets">${b}${wIn}</div>${sgRow}${last}`;}
         else{const on=!!(d0[0]);totN++;if(on)doneN++;ctl=`<div class="sets"><button class="check" data-id="${esc(id)}" data-i="0" aria-pressed="${on}">${on?'Yapıldı ✓':'Yapıldı'}</button></div>`;}
       }
+      let kq='';if(!off&&s>0&&ex.w!==false&&KAD_OPT[ex.alet]&&KT[ex.alet]==null&&!asked.has(ex.alet)&&S.db&&!S.readonly){asked.add(ex.alet);kq=kadQ(ex.alet);}
       const complete=!off&&(s?(st.d||[]).filter(Boolean).length>=s:!!(st.d||[])[0]);
       const vq=ex.q===false?null:(ex.q||ex.n);const vid=vq?`<a class="vid" href="https://www.youtube.com/results?search_query=${encodeURIComponent(vq)}" target="_blank" rel="noopener">▶ Video</a>`:'';
-      cards+=`<article class="ex${complete?' complete':''}${off?' off':''}"><div class="exhead"><div class="exname">${nm}${ex.knee==='only'?'<span class="tag">diz modu</span>':''}${calM?'<span class="tag cal">ağırlık bulma</span>':''}${ex.note?`<small>${esc(ex.note)}</small>`:''}${S.targets[ex.id]&&S.targets[ex.id].not?`<small class="hedef">${esc(S.targets[ex.id].not)}</small>`:''}</div>${dose?`<span class="dose">${esc(dose)}</span>`:''}</div>${ctl}${vid?`<div class="meta2">${vid}</div>`:''}</article>`;
+      cards+=`<article class="ex${complete?' complete':''}${off?' off':''}">${kq}<div class="exhead"><div class="exname">${nm}${ex.knee==='only'?'<span class="tag">diz modu</span>':''}${calM?'<span class="tag cal">ağırlık bulma</span>':''}${ex.note?`<small>${esc(ex.note)}</small>`:''}${S.targets[ex.id]&&S.targets[ex.id].not?`<small class="hedef">${esc(S.targets[ex.id].not)}</small>`:''}</div>${dose?`<span class="dose">${esc(dose)}</span>`:''}</div>${ctl}${vid?`<div class="meta2">${vid}</div>`:''}</article>`;
     }
     h+=`<section class="block"><h2>${esc(B.t)}<span>${doneN}/${totN}</span></h2><div class="list">${cards}</div></section>`;
   }
@@ -811,6 +853,10 @@ view.addEventListener('click',e=>{
   const cr=e.target.closest('[data-rir]');if(cr){const box=cr.closest('[data-cal]'),id=box.dataset.cal;const w=num(box.querySelector('[data-calw]').value),reps=Math.round(num(box.querySelector('[data-calr]').value));
     if(!(w>0&&reps>0)){box.querySelector('[data-calerr]').textContent='Önce kullandığın ağırlığı (kg) ve yaptığın tekrarı yaz.';return;}
     calTry(id,w,reps,+cr.dataset.rir);startTimer();render();return;}
+  const kq=e.target.closest('[data-kqv]');if(kq){const a=kq.closest('[data-kq]').dataset.kq,v=+kq.dataset.kqv;saveKademe(K=>{K.tur[a]=v;});return;}
+  const kd=e.target.closest('[data-kad]');if(kd){kadOpen=kadOpen===kd.dataset.kad?null:kd.dataset.kad;render();return;}
+  const kv=e.target.closest('[data-kadv]');if(kv){const ex=findEx(kv.closest('[data-kadbox]').dataset.kadbox),v=+kv.dataset.kadv;kadOpen=null;
+    if(ex)saveKademe(K=>{if(num(K.hareket[ex.id])===v)delete K.hareket[ex.id];else K.hareket[ex.id]=v;});else render();return;}
   const lr=e.target.closest('[data-lr]');if(lr){const id=lr.dataset.lr,v=+lr.dataset.v;mutate(L=>{const it=L.items[id]||(L.items[id]={});if(it.rir===v)delete it.rir;else it.rir=v;});render();return;}
   const fb=e.target.closest('[data-form]');if(fb){const id=fb.dataset.form;mutate(L=>{const it=L.items[id]||(L.items[id]={});if(it.form==='bozuk')delete it.form;else it.form='bozuk';});render();return;}
   const b=e.target.closest('button[data-id]');

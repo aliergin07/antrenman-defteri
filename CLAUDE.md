@@ -37,7 +37,8 @@ Kişiye özel antrenman ve beslenme takip uygulaması. Ali (ürün sahibi) müş
 - `S` global durum: `profil`, `program`, `targets` (= DB `targets.items`), `settings`, `logs` (tarih → log), `cur` (seçili gün), `tab`, `sess`.
 - **program:**
   - `{start:'YYYY-MM-DD', weeks, deload, rules:[], rehber, blocks:{key:{t, items:[...]}}, days:{'0'..'6':{title, note, sessions:{sabah:[blockKey], aksam:[blockKey]}}}, dates:{'YYYY-MM-DD': gün override}, targets:{kcal, p}}`
-  - Hareket (item): `{id, n, s, r, q, note, w:false?, leg?, knee?, fw?, dow?, alt?}`
+  - Hareket (item): `{id, n, s, r, q, note, alet?, inc?, w0?, w:false?, leg?, knee?, fw?, dow?, alt?}`
+    - `alet`: `bar | dambil | makine | kablo | destek | lastik | diger`. `inc`: programdaki kademe (kg).
     - `s`: set sayısı ya da hafta adımlı dizi, ör. `[[1,2],[2,3]]` (1. haftadan itibaren 2 set, 2. haftadan itibaren 3).
     - `r`: tekrar metni, ör. `"8–12"`.
     - `q`: YouTube arama sorgusu.
@@ -48,6 +49,7 @@ Kişiye özel antrenman ve beslenme takip uygulaması. Ali (ürün sahibi) müş
   - `rir`: son sette kalan tekrar (0–4, 4 = 4+). `form:'bozuk'`: form bozuldu işareti. Kullanıcıya "RIR" terimi gösterilmez.
   - `hazir = {uyku 1–5, enerji 1–5, agri 0–10, renk:'yesil'|'sari'|'kirmizi', t}`: günlük hazırlık sorusu.
   - Kaydetme akışı: `mutate(fn)` → `queueSave` → `flushSave` (debounce).
+- **settings:** `{knee, since, kademe?:{tur:{<alet>: kg}, hareket:{<exId>: kg}}}`. `tur` değeri 0 = "Bilmiyorum" (tekrar sorulmaz).
 - **targets:** `S.targets[exId] = {w, not}`. Koçun yazdığı hedef ağırlık; kartta "Hedef:" olarak görünür.
 - **profil:**
   - Form alanları `PF` dizisinde: ad, yas, cinsiyet ('Erkek'/'Kadın'), boy, kilo, bel, boyun, kalca, hedef, deneyim, saglik, yer, gun, sure, ...
@@ -68,7 +70,9 @@ Kişiye özel antrenman ve beslenme takip uygulaması. Ali (ürün sahibi) müş
   - RFM: erkek `64-20*(boy/bel)`, kadın `76-20*(boy/bel)`
 - **VKİ** kategorileri ve **bel/boy oranı** (0,5 altı sağlıklı).
 - **Başlangıç testi eşikleri** `tLevel()` içinde. Ağrı işaretlenen bölge seviye 1 sayılır.
-- **`autoSug`:** tüm setlerde aralığın üst tekrarına ulaşıldıysa ağırlık artırımı önerir. 20 kg altında +2 kg, üstünde +2,5 kg.
+- **`autoSug`:** tüm setlerde aralığın üst tekrarına ulaşıldıysa bir kademe ağırlık artırımı önerir.
+  - **Kademe (`kademe(ex, w)`):** `settings.kademe.hareket[ex.id]` → `settings.kademe.tur[ex.alet]` (destek için `makine`) → `ex.inc` → varsayılan (20 kg altında 2, üstünde 2,5). `autoSug`, küçük adım kontrolü ve ağırlık bulma (`calInc`) aynı fonksiyonu kullanır.
+  - **Alet:** `destek` ters ilerler ("↓ Destek: w − kademe", en az 0, %10 kontrolü yok). `lastik` / `diger`: kg önerisi yok, yalnızca tekrar ve kapı mesajları.
   - **Güvenlik kapısı:** önceki kayıtta o gün ağrı ≥ 4, hazırlık kırmızı, son sette 0 tekrar kalmış ya da form bozuk ise artış yok ("Bu hafta aynı ağırlık: sebep"). Girilmemiş alan engel değildir.
   - **Küçük adım:** artış ağırlığın %10'undan büyükse önce tekrar (üst sınır + 3), sonra ağırlık.
 - **Hazırlık rengi (`hzRenk`):** kırmızı = ağrı ≥ 6 ya da uyku ≤ 2 ve enerji ≤ 2; sarı = uyku ≤ 2 ya da enerji ≤ 2 ya da ağrı 4–5. Sarı/kırmızıda setler `max(1, round(s × 0,7))` (`hzSets`, deload yarılamasından sonra) ve o gün ağırlık artışı önerilmez.
