@@ -176,6 +176,28 @@ textarea{width:100%;min-height:70px;border:1px solid var(--line);border-radius:8
 .bfg-ends,.bfg-names{position:relative;height:18px;font-size:.78rem;font-variant-numeric:tabular-nums}
 .bfg-ends span{position:absolute;font-weight:700;color:var(--fg);white-space:nowrap}.bfg-ends span:first-child{transform:translateX(-100%);padding-right:4px}.bfg-ends span:last-child{padding-left:4px}
 .bfg-names span{position:absolute;transform:translateX(-50%);color:var(--muted);font-size:.66rem;white-space:nowrap}
+.tag.cal{display:inline-block;background:var(--accent-soft);color:var(--accent);text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+.cal{display:grid;gap:8px;min-width:0}
+.calbox{background:var(--accent-soft);border-radius:8px;padding:10px 12px;display:grid;gap:10px;font-size:.92rem}
+.calbox small,.calres small{color:var(--muted);font-size:.82rem}
+.calrow{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.calrow .grow{flex:1;min-width:0}
+.calrow .check{height:38px}
+.calin{width:54px;height:40px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--fg);padding:0 6px;font:inherit;font-variant-numeric:tabular-nums;text-align:right}
+.cal .pills button{min-width:48px;height:44px;background:var(--surface)}
+.caltry{display:flex;gap:8px;justify-content:space-between;font-variant-numeric:tabular-nums}
+.caltry+.caltry{border-top:1px dashed var(--line);padding-top:10px}
+.caltry em{font-style:normal;font-weight:700;white-space:nowrap;color:var(--warn)}
+.caltry em.ok{color:var(--done)}
+.calres{border:2px solid var(--done);border-radius:10px;padding:10px 12px;display:grid;gap:2px}
+.calres b{font-family:var(--display);font-size:2rem;line-height:1.1;color:var(--accent);font-variant-numeric:tabular-nums}
+.callbl{font-size:.88rem;color:var(--muted)}
+.cal .sm{min-height:36px;justify-self:start}
+.gains{display:grid}
+.gain{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:8px 0;font-size:.92rem;font-variant-numeric:tabular-nums}
+.gain+.gain{border-top:1px dashed var(--line)}
+.gain span span{color:var(--muted)}
+.gain b{color:var(--accent);white-space:nowrap}
 </style>
 
 <div class="wrap">
@@ -243,6 +265,81 @@ function lastWeight(exid,beforeKey){
   return null;
 }
 
+// ---------- ağırlık bulma haftası (program.kalibrasyon)
+const fmtKg=n=>(Math.round(n*10)/10).toString().replace('.',',');
+const calDraft={};
+function calOn(wk){const k=S.program&&S.program.kalibrasyon;return !!(k&&Array.isArray(k.hafta)&&k.hafta.includes(wk));}
+function calT(r){const head=String(r||'').split('·')[0].split('/')[0];const ns=(head.match(/\d+/g)||[]).map(Number);if(!ns.length)return 0;return ns.length>1?Math.round((ns[0]+ns[1])/2):ns[0];}
+function calInc(ex){const i=num(ex.inc);return i>0?i:2;}
+function findEx(id){const i=id.lastIndexOf('.');const B=((S.program||{}).blocks||{})[id.slice(0,i)];return B&&(B.items||[]).find(x=>x.id===id.slice(i+1));}
+// Bu hareketin en son tamamlanmış ağırlık bulma sonucu (selfId: o günkü kendi kaydı hariç).
+function calPrev(exid,dk,selfId){
+  const keys=Object.keys(S.logs).filter(k=>k<=dk).sort().reverse();
+  for(const k of keys){const it=S.logs[k].items||{};for(const ik in it){if(k===dk&&ik===selfId)continue;const c=it[ik]&&it[ik].cal;if(c&&c.done&&c.w&&ik.split('.').pop()===exid)return c;}}
+  return null;
+}
+// t={w,reps,rir}; rir 4 = "4+" (hesapta 5). Epley e1RM, hedef: T tekrar + 2 tekrar pay.
+function calEval(t,T,inc,last){
+  const rn=t.rir>=4?5:t.rir;const e1=t.w*(1+(t.reps+rn)/30);const wT=e1/(1+(T+2)/30);
+  const lim=x=>Math.max(inc,t.rir>=4?Math.max(x,t.w+inc):t.rir<=1?Math.min(x,t.w-inc):x);
+  const r2=x=>Math.round(x*100)/100;
+  if(t.rir===2||t.rir===3||last)return {done:true,w:r2(lim(Math.floor(wT/inc+1e-6)*inc)),e1rm:r2(e1)};
+  return {done:false,w:r2(lim(Math.round(wT/inc)*inc))};
+}
+function calTry(id,w,reps,rir){
+  const ex=findEx(id);if(!ex)return;const T=calT(pick(ex.r||'',weekOf(S.cur))),inc=calInc(ex);
+  mutate(L=>{const it=L.items[id]||(L.items[id]={});const c=it.cal=Object.assign({},it.cal);if(c.done)return;
+    c.tries=(c.tries||[]).concat([{w,reps,rir}]);const ev=calEval({w,reps,rir},T,inc,c.tries.length>=3);
+    if(ev.done){c.done=true;c.w=ev.w;c.e1rm=ev.e1rm;c.T=T;it.w=fmtKg(ev.w);
+      const d0=(it.d||[]).slice();d0[0]=true;it.d=d0;const rr=(it.reps||[]).slice();rr[0]=w===ev.w?String(reps):'';it.reps=rr;}});
+  delete calDraft[id];
+}
+function calUndo(id){
+  mutate(L=>{const it=L.items[id];const c=it&&it.cal;if(!c||!(c.tries||[]).length)return;c.tries=c.tries.slice(0,-1);
+    if(c.done){delete c.done;delete c.w;delete c.e1rm;delete c.T;it.w='';const d0=(it.d||[]).slice();d0[0]=false;it.d=d0;const rr=(it.reps||[]).slice();rr[0]='';it.reps=rr;}});
+  delete calDraft[id];
+}
+function calCtl(ex,id,st,s,T){
+  const c=st.cal||{},tries=c.tries||[],inc=calInc(ex),w0=num(ex.w0);
+  const rows=tries.map((t,i)=>{const v=c.done&&i===tries.length-1?'<em class="ok">✓</em>':t.rir>=4?'<em>hafif ↑</em>':t.rir<=1?'<em>ağır ↓</em>':'<em class="ok">✓</em>';
+    return `<div class="caltry"><span>Deneme ${i+1} &nbsp;<b>${fmtKg(t.w)} kg</b> × ${t.reps} · ${t.rir>=4?'4+':t.rir} daha</span>${v}</div>`;}).join('');
+  const undo=tries.length?`<button class="sm" data-calundo="${esc(id)}">Son denemeyi geri al</button>`:'';
+  let h=`<div class="cal" data-cal="${esc(id)}">`;
+  if(c.done){
+    h+=`<div class="calbox">${rows}</div><div class="calres"><small>Çalışma ağırlığın</small><b>${fmtKg(c.w)} kg × ${c.T||T}</b><small>Tahmini maksimal (1 tekrar): ~${Math.round(c.e1rm)} kg · bu bilgi gelişimini takip etmek için</small></div>`;
+    if(s>1){const d0=st.d||[],rr=st.reps||[];let b='';
+      for(let i=1;i<s;i++)b+=`<div class="setcol"><button class="set" data-id="${esc(id)}" data-i="${i}" aria-pressed="${!!d0[i]}" aria-label="Kalan set ${i}">${i}</button><input class="rep" inputmode="numeric" data-rid="${esc(id)}" data-ri="${i}" value="${esc(rr[i]||'')}" placeholder="${c.T||T}" aria-label="Kalan set ${i} tekrar"></div>`;
+      h+=`<div class="sets"><span class="callbl">Kalan setleri ${fmtKg(c.w)} kg ile yap:</span>${b}</div>`;}
+    return h+undo+'</div>';
+  }
+  const last=tries[tries.length-1];const sug=last?calEval(last,T,inc,false).w:w0;const dr=calDraft[id]||{};
+  const wv=dr.w!=null?dr.w:(sug>0?fmtKg(sug):''),rv=dr.reps!=null?dr.reps:T;
+  let pills='';for(let i=0;i<=4;i++)pills+=`<button data-rir="${i}" aria-label="${i===4?'4 veya daha fazla':i} tekrar daha">${i===4?'4+':i}</button>`;
+  const hint=last?`Önerilen: ${fmtKg(sug)} kg (${last.rir>=4?'hafif geldi, artırdık':'ağır geldi, azalttık'})`:(w0>0?`Önerilen başlangıç: ${fmtKg(w0)} kg`:'Rahatça yapabileceğin bir ağırlıkla başla.');
+  h+=`<div class="calbox">${rows}
+    <div class="calrow"><span class="grow"><b>Isınma:</b> çok hafif${w0>0?' ('+fmtKg(w0/2)+' kg)':''} × 10 tekrar</span><button class="check" data-calwarm="${esc(id)}" aria-pressed="${!!c.warm}" aria-label="Isınma yapıldı">✓</button></div>
+    <div class="calrow"><b>Deneme ${tries.length+1}:</b><input class="calin" inputmode="decimal" data-calw value="${esc(wv)}" aria-label="Deneme ağırlığı (kg)"><span>kg ×</span><input class="calin" inputmode="numeric" data-calr value="${esc(rv)}" aria-label="Deneme tekrarı"><span>tekrar</span></div>
+    <div>Kaç tekrar daha yapabilirdin?</div>
+    <div class="pills" role="group">${pills}</div>
+    <small>${hint}</small><div class="err" data-calerr></div></div>`;
+  return h+undo+'</div>';
+}
+// Profil: ilk tahmini maksimal → son 14 günün en iyisi. En az 1 hafta veri yoksa boş döner.
+function gucGelisim(){
+  const names={};for(const bk in ((S.program||{}).blocks||{}))for(const ex of S.program.blocks[bk].items||[])names[ex.id]=ex.n;
+  const first={};
+  for(const k of Object.keys(S.logs).sort()){const it=S.logs[k].items||{};for(const ik in it){const c=it[ik]&&it[ik].cal,x=ik.split('.').pop();if(c&&c.done&&c.e1rm>0&&!first[x])first[x]={k,e:c.e1rm};}}
+  const lim=new Date();lim.setHours(0,0,0,0);lim.setDate(lim.getDate()-14);const from=keyOf(lim);let rows='';
+  for(const x in first){const f=first[x];let best=0,lastK='';
+    for(const k in S.logs){if(k<from||k<=f.k)continue;const it=S.logs[k].items||{};
+      for(const ik in it){if(ik.split('.').pop()!==x)continue;const w=num(it[ik].w);if(!(w>0))continue;
+        for(const r of it[ik].reps||[]){const n=num(r);if(n>0){best=Math.max(best,w*(1+n/30));if(k>lastK)lastK=k;}}}}
+    if(!best||parseKey(lastK)-parseKey(f.k)<6.5*864e5)continue;
+    const pct=Math.round((best-f.e)/f.e*100);
+    rows+=`<div class="gain"><span>${esc(names[x]||x)} <span>tahmini maks ${Math.round(f.e)} → ${Math.round(best)} kg</span></span><b>${pct<0?'−':'+'}%${Math.abs(pct)}</b></div>`;}
+  return rows?`<section class="form" id="gucGelisim"><h2>Güç gelişimin</h2><div class="gains">${rows}</div></section>`:'';
+}
+
 // ---------- saving (one write at a time, debounced)
 const dirty=new Set();let pending=null,timerSave=null,chain=Promise.resolve();
 function flushSave(){const keys=[...dirty];dirty.clear();pending=null;
@@ -291,6 +388,7 @@ function renderDay(){
   if(kOn)h+=`<div class="banner"><b>Diz modu açık:</b> dizde sıvı varken bacağa yük bindiren hareketler kapalı, yerine diz dostu hareketler geldi. Sıvı geçince "Diz" düğmesine dokunup normale dön.</div>`;
   if(kOn&&day.kneeNote)h+=`<div class="banner">${esc(day.kneeNote)}</div>`;
   const keys=(day.sessions&&day.sessions[S.sess])||[];
+  if(keys.length&&calOn(wk))h+=`<div class="hero" id="calInfo"><b>${wk}. hafta: ağırlık bulma haftası</b><p class="daynote" style="margin:6px 0 0">Bu hafta her harekette sana uygun ağırlığı buluyoruz. Isınma setinden sonra önerilen ağırlıkla hedef tekrarı yap, sonra "kaç tekrar daha yapabilirdin?" sorusunu cevapla. Uygulama ağırlığı ayarlayacak.</p></div>`;
   if(!keys.length)h+=`<p class="empty">${S.sess==='sabah'?'Bu sabah antrenman yok.':'Bu akşam antrenman yok.'}</p>`;
   for(const bk of keys){
     const B=(P.blocks||{})[bk];if(!B)continue;
@@ -306,24 +404,27 @@ function renderDay(){
     for(const ex of items){
       const id=bk+'.'+ex.id;const st=(L.items||{})[id]||{};const off=kOn&&ex.leg;
       const s=setsFor(ex,wk);const r=pick(ex.r||'',wk);
-      const dose=s?(s+' × '+r):r;
+      const T=calT(r);const calM=!off&&s>0&&ex.w!==false&&T>0&&calOn(wk)&&(!!st.cal||!calPrev(ex.id,dk,id));
+      const dose=calM?'hedef '+T+' tekrar':s?(s+' × '+r):r;
       const link=rehberLink(ex);
       const nm=link&&ex.g!==false?`<a href="${esc(link)}" target="_blank" rel="noopener">${esc(ex.n)}</a>`:esc(ex.n);
       let ctl='';
       if(off){ctl=`<div class="alt">${esc(ex.alt||'Dizde sıvı varken bugün yok.')}</div>`;}
       else{
         const d0=st.d||[];
-        if(s){let b='';const rr=st.reps||[];const ph=(String(r).match(/\d+/g)||[''])[0];const repOk=ex.w!==false;
+        if(calM){totN+=s;doneN+=d0.slice(0,s).filter(Boolean).length;ctl=calCtl(ex,id,st,s,T);}
+        else if(s){let b='';const rr=st.reps||[];const ph=(String(r).match(/\d+/g)||[''])[0];const repOk=ex.w!==false;
           for(let i=0;i<s;i++){const on=!!d0[i];totN++;if(on)doneN++;const btn=`<button class="set" data-id="${esc(id)}" data-i="${i}" aria-pressed="${on}" aria-label="Set ${i+1}">${i+1}</button>`;
             b+=repOk?`<div class="setcol">${btn}<input class="rep" inputmode="numeric" data-rid="${esc(id)}" data-ri="${i}" value="${esc(rr[i]||'')}" placeholder="${esc(ph)}" aria-label="Set ${i+1} tekrar"></div>`:btn;}
           const lw=ex.w===false?null:lastWeight(ex.id,dk);
-          const wIn=ex.w===false?'':`<div class="w"><input inputmode="decimal" id="w-${esc(id)}" data-id="${esc(id)}" value="${esc(st.w||'')}" placeholder="${esc((S.targets[ex.id]&&S.targets[ex.id].w)||'kg / bant')}" aria-label="${esc(ex.n)} ağırlık">${S.targets[ex.id]&&S.targets[ex.id].w?`<small class="hedef">Hedef: ${esc(S.targets[ex.id].w)}</small>`:''}${lw?`<small>Geçen: ${esc(lw.w)}${lw.reps&&lw.reps.some(Boolean)?' × '+esc(lw.reps.filter(Boolean).join('/')):''}</small>`:''}${(()=>{const sg=autoSug(lw,r,s);return sg?`<small class="hedef">↑ Öneri: ${esc(sg)}</small>`:''})()}</div>`;
+          const tg=S.targets[ex.id]&&S.targets[ex.id].w;const cp=ex.w===false||tg?null:calPrev(ex.id,dk,id);const hedef=tg||(cp?fmtKg(cp.w)+' kg':'');
+          const wIn=ex.w===false?'':`<div class="w"><input inputmode="decimal" id="w-${esc(id)}" data-id="${esc(id)}" value="${esc(st.w||'')}" placeholder="${esc(tg||(cp?fmtKg(cp.w):'')||'kg / bant')}" aria-label="${esc(ex.n)} ağırlık">${hedef?`<small class="hedef">Hedef: ${esc(hedef)}</small>`:''}${lw?`<small>Geçen: ${esc(lw.w)}${lw.reps&&lw.reps.some(Boolean)?' × '+esc(lw.reps.filter(Boolean).join('/')):''}</small>`:''}${(()=>{const sg=autoSug(lw,r,s);return sg?`<small class="hedef">↑ Öneri: ${esc(sg)}</small>`:''})()}</div>`;
           ctl=`<div class="sets">${b}${wIn}</div>`;}
         else{const on=!!(d0[0]);totN++;if(on)doneN++;ctl=`<div class="sets"><button class="check" data-id="${esc(id)}" data-i="0" aria-pressed="${on}">${on?'Yapıldı ✓':'Yapıldı'}</button></div>`;}
       }
       const complete=!off&&(s?(st.d||[]).filter(Boolean).length>=s:!!(st.d||[])[0]);
       const vq=ex.q===false?null:(ex.q||ex.n);const vid=vq?`<a class="vid" href="https://www.youtube.com/results?search_query=${encodeURIComponent(vq)}" target="_blank" rel="noopener">▶ Video</a>`:'';
-      cards+=`<article class="ex${complete?' complete':''}${off?' off':''}"><div class="exhead"><div class="exname">${nm}${ex.knee==='only'?'<span class="tag">diz modu</span>':''}${ex.note?`<small>${esc(ex.note)}</small>`:''}${S.targets[ex.id]&&S.targets[ex.id].not?`<small class="hedef">${esc(S.targets[ex.id].not)}</small>`:''}</div>${dose?`<span class="dose">${esc(dose)}</span>`:''}</div>${ctl}${vid?`<div class="meta2">${vid}</div>`:''}</article>`;
+      cards+=`<article class="ex${complete?' complete':''}${off?' off':''}"><div class="exhead"><div class="exname">${nm}${ex.knee==='only'?'<span class="tag">diz modu</span>':''}${calM?'<span class="tag cal">ağırlık bulma</span>':''}${ex.note?`<small>${esc(ex.note)}</small>`:''}${S.targets[ex.id]&&S.targets[ex.id].not?`<small class="hedef">${esc(S.targets[ex.id].not)}</small>`:''}</div>${dose?`<span class="dose">${esc(dose)}</span>`:''}</div>${ctl}${vid?`<div class="meta2">${vid}</div>`:''}</article>`;
     }
     h+=`<section class="block"><h2>${esc(B.t)}<span>${doneN}/${totN}</span></h2><div class="list">${cards}</div></section>`;
   }
@@ -515,7 +616,7 @@ function renderProfil(){hdr(false);const P=S.profil||{};const first=!S.profil;
   <section class="form pf"><h2>Beslenme</h2>${g(['yemedikleri','alerji','ogun','takviye']).map(f).join('')}</section>
   <section class="form pf"><h2>Tercihler</h2>${g(['sevdigi','sevmedigi','ekNot']).map(f).join('')}</section>
   <section class="form pf"><label class="consent"><input type="checkbox" id="p_onay" ${P.onay?'checked':''}><span>Bu bilgilerin ve uygulamaya gireceğim kayıtların, programımı hazırlayan kişi tarafından ve yapay zekâ destekli olarak değerlendirileceğini kabul ediyorum.</span></label>
-  <div class="err" id="pErr"></div><button class="btn" id="saveProf">${first?'Kaydet ve gönder':'Değişiklikleri kaydet'}</button><div class="saved" id="savedMsg"></div></section>${!first?`${testSummary()}<button class="btn sec" id="redoTest" style="width:100%;margin-top:10px">${S.profil.test&&S.profil.test.done?'Testi yeniden yap':'Başlangıç testini yap'}</button>`:''}`;
+  <div class="err" id="pErr"></div><button class="btn" id="saveProf">${first?'Kaydet ve gönder':'Değişiklikleri kaydet'}</button><div class="saved" id="savedMsg"></div></section>${!first?`${testSummary()}${gucGelisim()}<button class="btn sec" id="redoTest" style="width:100%;margin-top:10px">${S.profil.test&&S.profil.test.done?'Testi yeniden yap':'Başlangıç testini yap'}</button>`:''}`;
   view.innerHTML=h;}
 async function saveProfil(){const o=Object.assign({},S.profil||{});document.querySelectorAll('[data-p]').forEach(el=>{o[el.dataset.p]=el.value.trim();});
   o.onay=!!(document.getElementById('p_onay')||{}).checked;
@@ -618,6 +719,11 @@ view.addEventListener('click',e=>{
   if(e.target.id==='skipTest'){saveTest(true);return;}
   if(e.target.id==='redoTest'){S.tab='test';render();window.scrollTo(0,0);return;}
   const go=e.target.closest('[data-go]');if(go){S.cur=parseKey(go.dataset.go);S.tab='gun';render();window.scrollTo(0,0);return;}
+  const cw=e.target.closest('[data-calwarm]');if(cw){const id=cw.dataset.calwarm;mutate(L=>{const it=L.items[id]||(L.items[id]={});it.cal=Object.assign({},it.cal,{warm:!(it.cal&&it.cal.warm)});});render();return;}
+  const cu=e.target.closest('[data-calundo]');if(cu){calUndo(cu.dataset.calundo);render();return;}
+  const cr=e.target.closest('[data-rir]');if(cr){const box=cr.closest('[data-cal]'),id=box.dataset.cal;const w=num(box.querySelector('[data-calw]').value),reps=Math.round(num(box.querySelector('[data-calr]').value));
+    if(!(w>0&&reps>0)){box.querySelector('[data-calerr]').textContent='Önce kullandığın ağırlığı (kg) ve yaptığın tekrarı yaz.';return;}
+    calTry(id,w,reps,+cr.dataset.rir);startTimer();render();return;}
   const b=e.target.closest('button[data-id]');
   if(b){const id=b.dataset.id,i=+b.dataset.i;mutate(L=>{const it=L.items[id]||(L.items[id]={});const d0=(it.d||[]).slice();d0[i]=!d0[i];it.d=d0;});
     if(b.classList.contains('set')&&curLog().items[b.dataset.id].d[i])startTimer();render();return;}
@@ -635,6 +741,7 @@ view.addEventListener('click',e=>{
 view.addEventListener('input',e=>{
   if(e.target.matches('.rep')){const id=e.target.dataset.rid,i=+e.target.dataset.ri,v=e.target.value.replace(/[^0-9]/g,'');mutate(L=>{const it=L.items[id]||(L.items[id]={});const r=(it.reps||[]).slice();r[i]=v;it.reps=r;});}
   if(e.target.matches('.w input')){const id=e.target.dataset.id,v=e.target.value;mutate(L=>{(L.items[id]||(L.items[id]={})).w=v;});}
+  if(e.target.matches('[data-calw],[data-calr]')){const box=e.target.closest('[data-cal]');calDraft[box.dataset.cal]={w:box.querySelector('[data-calw]').value,reps:box.querySelector('[data-calr]').value};}
   if(e.target.id==='note'){const v=e.target.value;mutate(L=>{L.note=v;});}
   if(e.target.dataset&&e.target.dataset.o){const f=e.target.dataset.o,v=e.target.value;mutate(L=>{L.olcum=Object.assign({},L.olcum||{},{[f]:v});});const bv=document.getElementById('bfv');if(bv)bv.innerHTML=bfTxt(curLog().olcum||{});}
   if(e.target.dataset&&e.target.dataset.ht){const f=e.target.dataset.ht,v=e.target.value;mutate(L=>{L.haftalik=Object.assign({},L.haftalik||{},{[f]:v});});}
