@@ -44,7 +44,9 @@ Kişiye özel antrenman ve beslenme takip uygulaması. Ali (ürün sahibi) müş
     - `w:false`: ağırlık girişi yok.
   - `pick(v, wk)` ve `setsFor(ex, wk)` haftaya göre değeri çözer.
 - **log (gün):**
-  - `{date, items:{'<blockKey>.<exId>':{w, reps:[], d:[bool]}}, note, pain, knee, olcum:{kilo, bel, boyun, kalca, ...}, haftalik:{...}, saglik}`
+  - `{date, items:{'<blockKey>.<exId>':{w, reps:[], d:[bool], rir?, form?}}, note, pain, knee, hazir?, olcum:{kilo, bel, boyun, kalca, ...}, haftalik:{...}, saglik}`
+  - `rir`: son sette kalan tekrar (0–4, 4 = 4+). `form:'bozuk'`: form bozuldu işareti. Kullanıcıya "RIR" terimi gösterilmez.
+  - `hazir = {uyku 1–5, enerji 1–5, agri 0–10, renk:'yesil'|'sari'|'kirmizi', t}`: günlük hazırlık sorusu.
   - Kaydetme akışı: `mutate(fn)` → `queueSave` → `flushSave` (debounce).
 - **targets:** `S.targets[exId] = {w, not}`. Koçun yazdığı hedef ağırlık; kartta "Hedef:" olarak görünür.
 - **profil:**
@@ -67,6 +69,9 @@ Kişiye özel antrenman ve beslenme takip uygulaması. Ali (ürün sahibi) müş
 - **VKİ** kategorileri ve **bel/boy oranı** (0,5 altı sağlıklı).
 - **Başlangıç testi eşikleri** `tLevel()` içinde. Ağrı işaretlenen bölge seviye 1 sayılır.
 - **`autoSug`:** tüm setlerde aralığın üst tekrarına ulaşıldıysa ağırlık artırımı önerir. 20 kg altında +2 kg, üstünde +2,5 kg.
+  - **Güvenlik kapısı:** önceki kayıtta o gün ağrı ≥ 4, hazırlık kırmızı, son sette 0 tekrar kalmış ya da form bozuk ise artış yok ("Bu hafta aynı ağırlık: sebep"). Girilmemiş alan engel değildir.
+  - **Küçük adım:** artış ağırlığın %10'undan büyükse önce tekrar (üst sınır + 3), sonra ağırlık.
+- **Hazırlık rengi (`hzRenk`):** kırmızı = ağrı ≥ 6 ya da uyku ≤ 2 ve enerji ≤ 2; sarı = uyku ≤ 2 ya da enerji ≤ 2 ya da ağrı 4–5. Sarı/kırmızıda setler `max(1, round(s × 0,7))` (`hzSets`, deload yarılamasından sonra) ve o gün ağırlık artışı önerilmez.
 
 ## Kod kuralları
 - Vanilla JS, mevcut stile uy: küçük fonksiyonlar, template string ile HTML, kullanıcı verisini her zaman `esc()` ile kaçır.

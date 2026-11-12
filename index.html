@@ -193,6 +193,12 @@ textarea{width:100%;min-height:70px;border:1px solid var(--line);border-radius:8
 .calres b{font-family:var(--display);font-size:2rem;line-height:1.1;color:var(--accent);font-variant-numeric:tabular-nums}
 .callbl{font-size:.88rem;color:var(--muted)}
 .cal .sm{min-height:36px;justify-self:start}
+.last{display:grid;gap:6px}
+.last .pills{align-items:center}
+.formb{height:36px;padding:0 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg);font-size:.82rem;font-weight:600;cursor:pointer;white-space:nowrap}
+.pills .formb[aria-pressed="true"]{background:var(--warn-soft);border-color:var(--warn);color:var(--warn)}
+.sug{font-size:.85rem;font-weight:600;color:var(--warn)}
+.sug.more{color:var(--accent)}
 .hz{margin-top:14px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;display:grid;gap:10px}
 .hz h2{font-family:var(--display);font-size:1.05rem;letter-spacing:.02em;margin:0}
 .hz label{font-size:.88rem;font-weight:600;display:block;margin-bottom:4px}
@@ -299,18 +305,25 @@ function hzPick(f,v){
   mutate(L=>{L.hazir={uyku:x.uyku,enerji:x.enerji,agri:x.agri,renk:hzRenk(x),t:new Date().toISOString()};});hz.d={};
 }
 
+// Çift ilerleme önerisi. Döner: {t:'up',kg} (ağırlık artır) | {t:'reps',n} (önce tekrarı artır) | {t:'hold',why} (güvenlik kapısı kapalı) | null.
 function autoSug(lw,r,sets){
   if(!lw||!lw.w)return null;const w=num(lw.w);if(!(w>0))return null;
   const head=String(r||'').split('·')[0].split('/')[0];const ns=(head.match(/\d+/g)||[]).map(Number);if(!ns.length)return null;
   const top=Math.max(...ns);const reps=(lw.reps||[]).filter(Boolean).map(Number);
   if(reps.length<Math.max(1,Math.min(sets||1,2)))return null;
   if(!reps.every(x=>x>=top))return null;
-  const nw=w<20?w+2:w+2.5;return (Math.round(nw*10)/10).toString().replace('.',',')+' kg';
+  // Güvenlik kapısı: girilmemiş alan (eski kayıt) engel sayılmaz.
+  const why=lw.pain>=4?'ağrı vardı':lw.hazir&&lw.hazir.renk==='kirmizi'?'kendini iyi hissetmiyordun':lw.rir===0?'son sette hiç tekrar kalmamıştı':lw.form==='bozuk'?'form bozulmuştu':'';
+  if(why)return {t:'hold',why};
+  // Küçük adım: artış ağırlığın %10'undan büyükse önce tekrar (üst sınır + 3).
+  const inc=w<20?2:2.5;
+  if(inc>w*0.1+1e-9&&!reps.every(x=>x>=top+3))return {t:'reps',n:top+3};
+  return {t:'up',kg:(Math.round((w+inc)*10)/10).toString().replace('.',',')+' kg'};
 }
 function curLog(){return S.logs[keyOf(S.cur)]||{date:keyOf(S.cur),items:{}};}
 function lastWeight(exid,beforeKey){
   const keys=Object.keys(S.logs).filter(k=>k<beforeKey).sort().reverse();
-  for(const k of keys){const it=S.logs[k].items||{};for(const ik in it){if(ik.split('.').pop()===exid&&it[ik].w)return {w:it[ik].w,reps:it[ik].reps||[],k};}}
+  for(const k of keys){const it=S.logs[k].items||{};for(const ik in it){if(ik.split('.').pop()===exid&&it[ik].w)return {w:it[ik].w,reps:it[ik].reps||[],k,rir:it[ik].rir,form:it[ik].form,pain:S.logs[k].pain,hazir:S.logs[k].hazir};}}
   return null;
 }
 
@@ -484,10 +497,13 @@ function renderDay(){
         else if(s){let b='';const rr=st.reps||[];const ph=(String(r).match(/\d+/g)||[''])[0];const repOk=ex.w!==false;
           for(let i=0;i<s;i++){const on=!!d0[i];totN++;if(on)doneN++;const btn=`<button class="set" data-id="${esc(id)}" data-i="${i}" aria-pressed="${on}" aria-label="Set ${i+1}">${i+1}</button>`;
             b+=repOk?`<div class="setcol">${btn}<input class="rep" inputmode="numeric" data-rid="${esc(id)}" data-ri="${i}" value="${esc(rr[i]||'')}" placeholder="${esc(ph)}" aria-label="Set ${i+1} tekrar"></div>`:btn;}
-          const lw=ex.w===false?null:lastWeight(ex.id,dk);
+          const lw=ex.w===false?null:lastWeight(ex.id,dk);const sg=autoSug(lw,r,s),light=hzHafif(L);
           const tg=S.targets[ex.id]&&S.targets[ex.id].w;const cp=ex.w===false||tg?null:calPrev(ex.id,dk,id);const hedef=tg||(cp?fmtKg(cp.w)+' kg':'');
-          const wIn=ex.w===false?'':`<div class="w"><input inputmode="decimal" id="w-${esc(id)}" data-id="${esc(id)}" value="${esc(st.w||'')}" placeholder="${esc(tg||(cp?fmtKg(cp.w):'')||'kg / bant')}" aria-label="${esc(ex.n)} ağırlık">${hedef?`<small class="hedef">Hedef: ${esc(hedef)}</small>`:''}${lw?`<small>Geçen: ${esc(lw.w)}${lw.reps&&lw.reps.some(Boolean)?' × '+esc(lw.reps.filter(Boolean).join('/')):''}</small>`:''}${(()=>{const sg=autoSug(lw,r,s);return sg?`<small class="hedef">↑ Öneri: ${esc(sg)}</small>`:''})()}</div>`;
-          ctl=`<div class="sets">${b}${wIn}</div>`;}
+          const wIn=ex.w===false?'':`<div class="w"><input inputmode="decimal" id="w-${esc(id)}" data-id="${esc(id)}" value="${esc(st.w||'')}" placeholder="${esc(tg||(cp?fmtKg(cp.w):'')||'kg / bant')}" aria-label="${esc(ex.n)} ağırlık">${hedef?`<small class="hedef">Hedef: ${esc(hedef)}</small>`:''}${lw?`<small>Geçen: ${esc(lw.w)}${lw.reps&&lw.reps.some(Boolean)?' × '+esc(lw.reps.filter(Boolean).join('/')):''}</small>`:''}${sg&&sg.t==='up'&&!light?`<small class="hedef">↑ Öneri: ${esc(sg.kg)}</small>`:''}</div>`;
+          const sgTxt=!sg?'':sg.t==='hold'?'Bu hafta aynı ağırlık: '+sg.why:light?'Bugün ağırlık artırma':sg.t==='reps'?'Önce tekrarı artır: '+sg.n+' tekrara çık':'';
+          let lp='';if(repOk)for(let i=0;i<=4;i++)lp+=`<button data-lr="${esc(id)}" data-v="${i}" aria-pressed="${st.rir===i}" aria-label="${i===4?'4 veya daha fazla':i} tekrar daha">${i===4?'4+':i}</button>`;
+          const last=repOk?`<div class="last"><span class="callbl">Son sette kaç tekrar daha yapabilirdin?</span><div class="pills" role="group">${lp}<button class="formb" data-form="${esc(id)}" aria-pressed="${st.form==='bozuk'}">Form bozuldu</button></div></div>`:'';
+          ctl=`<div class="sets">${b}${wIn}</div>${sgTxt?`<div class="sug${sg.t==='reps'&&!light?' more':''}">${esc(sgTxt)}</div>`:''}${last}`;}
         else{const on=!!(d0[0]);totN++;if(on)doneN++;ctl=`<div class="sets"><button class="check" data-id="${esc(id)}" data-i="0" aria-pressed="${on}">${on?'Yapıldı ✓':'Yapıldı'}</button></div>`;}
       }
       const complete=!off&&(s?(st.d||[]).filter(Boolean).length>=s:!!(st.d||[])[0]);
@@ -795,6 +811,8 @@ view.addEventListener('click',e=>{
   const cr=e.target.closest('[data-rir]');if(cr){const box=cr.closest('[data-cal]'),id=box.dataset.cal;const w=num(box.querySelector('[data-calw]').value),reps=Math.round(num(box.querySelector('[data-calr]').value));
     if(!(w>0&&reps>0)){box.querySelector('[data-calerr]').textContent='Önce kullandığın ağırlığı (kg) ve yaptığın tekrarı yaz.';return;}
     calTry(id,w,reps,+cr.dataset.rir);startTimer();render();return;}
+  const lr=e.target.closest('[data-lr]');if(lr){const id=lr.dataset.lr,v=+lr.dataset.v;mutate(L=>{const it=L.items[id]||(L.items[id]={});if(it.rir===v)delete it.rir;else it.rir=v;});render();return;}
+  const fb=e.target.closest('[data-form]');if(fb){const id=fb.dataset.form;mutate(L=>{const it=L.items[id]||(L.items[id]={});if(it.form==='bozuk')delete it.form;else it.form='bozuk';});render();return;}
   const b=e.target.closest('button[data-id]');
   if(b){const id=b.dataset.id,i=+b.dataset.i;mutate(L=>{const it=L.items[id]||(L.items[id]={});const d0=(it.d||[]).slice();d0[i]=!d0[i];it.d=d0;});
     if(b.classList.contains('set')&&curLog().items[b.dataset.id].d[i])startTimer();render();return;}
